@@ -25,7 +25,7 @@ class SamplingJob(
                 val item = collector.collect(results.samples.size)
                 results.samples += item
                 logger.log(LogType.SAMPLE, item)
-                delay(intervalMs.milliseconds)
+//                delay(intervalMs.milliseconds)
             }
         } catch (e: CancellationException) {
             throw e

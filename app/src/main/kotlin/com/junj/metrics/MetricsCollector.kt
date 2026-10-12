@@ -14,9 +14,9 @@ class MetricsCollector(
     private val adb: AdbExecutor = ProcessAdbExecutor,
 ) {
     fun collect(sampleStamp: Int): SamplingItem {
+        val vmstat = parseVmstat(adb.rootShell("vmstat 1 2").output)
         val memInfo = adb.shell("cat /proc/meminfo")
         val pressureMemory = adb.rootShell("cat /proc/pressure/memory")
-        val vmstat = parseVmstat(adb.rootShell("vmstat").output)
         val thermal = adb.rootShell("dumpsys thermalservice")
         val zramMm = parseZramMmStatResult(adb.rootShell("cat /sys/block/zram0/mm_stat").output)
         val zramBd = parseZramBdStatResult(adb.rootShell("cat /sys/block/zram0/bd_stat").output)

@@ -3,9 +3,9 @@ package com.junj.config
 import java.io.File
 
 const val DEFAULT_TEST_ROUND_COUNT = 5
-const val DEFAULT_SAMPLE_INTERVAL_MS = 10_000L
-const val DEFAULT_LAUNCH_INTERVAL_MS = 15_000L
-const val DEFAULT_COLLECT_DELAY_MS = 12_000L
+const val DEFAULT_SAMPLE_INTERVAL_MS = 1_000L
+const val DEFAULT_LAUNCH_INTERVAL_MS = 20_000L
+const val DEFAULT_COLLECT_DELAY_MS = 18_000L
 const val DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB = 1024 * 4
 
 data class ExperimentConfig(

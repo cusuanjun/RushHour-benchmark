@@ -5,6 +5,7 @@ import com.junj.device.adb.AdbExecutor
 import com.junj.device.pid.getApplicationPid
 import com.junj.device.pid.isApplicationProcessAlive
 import com.junj.device.pid.waitForApplicationPid
+import com.junj.device.simulator.TouchSimulator
 import com.junj.domain.ExperimentResults
 import com.junj.domain.app.ApplicationInfo
 import com.junj.domain.launch.LaunchApplicationItem
@@ -30,6 +31,7 @@ class ExperimentRunner(
     )
 
     fun runTestRound(round: Int) {
+        val touchSimulator = TouchSimulator(adb)
         val launchedProcesses = ArrayList<LaunchedAppProcess>()
         for ((index, app) in apps.withIndex()) {
             val launchStartNs = System.nanoTime()
@@ -37,6 +39,7 @@ class ExperimentRunner(
             adb.rootShell("dumpsys gfxinfo ${app.packageName} reset")
             val amStartResult = adb.shell("am start -W -n ${app.componentName}")
             val launchedPid = waitForApplicationPid(adb, app.packageName)
+            touchSimulator.simulate(app.name)
             sleepUntil(launchStartNs + config.collectDelayMs * 1_000_000L)
             val gfxinfo = adb.shell("dumpsys gfxinfo ${app.packageName}")
             val meminfo = adb.shell("dumpsys meminfo ${app.packageName}")

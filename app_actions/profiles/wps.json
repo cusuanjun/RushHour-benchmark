@@ -1,0 +1,175 @@
+{
+    "app": "wps",
+    "package": "cn.wps.moffice_eng",
+    "validation": "UNVERIFIED_ON_DEVICE",
+    "fast_mode": true,
+    "evidence": "final",
+    "poll_interval": 0.15,
+    "cache_window_size": true,
+    "success_evidence": "screenshot",
+    "home": [
+        [
+            {
+                "text": "首页"
+            },
+            {
+                "text": "文档"
+            },
+            {
+                "text": "最近"
+            }
+        ]
+    ],
+    "steps": [
+        {
+            "name": "open_templates",
+            "action": "click",
+            "selectors": [
+                {
+                    "text": "找模板"
+                },
+                {
+                    "textContains": "模板"
+                }
+            ],
+            "expect": [
+                [
+                    {
+                        "text": "推荐"
+                    },
+                    {
+                        "text": "模板"
+                    },
+                    {
+                        "text": "稻壳"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "open_aippt",
+            "action": "click",
+            "clickBounds": true,
+            "selectors": [
+                {
+                    "text": "WPS AIPPT"
+                },
+                {
+                    "textContains": "AIPPT"
+                }
+            ],
+            "expect": [
+                [
+                    {
+                        "text": "立即生成"
+                    }
+                ]
+            ],
+            "pick": "first"
+        },
+        {
+            "name": "generate_ppt",
+            "action": "click",
+            "clickBounds": true,
+            "selectors": [
+                {
+                    "text": "立即生成"
+                },
+                {
+                    "textContains": "立即生成"
+                }
+            ],
+            "expect": [
+                [
+                    {
+                        "text": "生成大纲"
+                    }
+                ]
+            ],
+            "pick": "first"
+        },
+        {
+            "name": "generate",
+            "action": "wait",
+            "seconds": 0.5,
+            "expect": [
+                [
+                    {
+                        "text": "停止"
+                    },
+                    {
+                        "textContains": "停止"
+                    },
+                    {
+                        "descriptionContains": "停止"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "stop_generation",
+            "action": "click",
+            "clickBounds": true,
+            "selectors": [
+                {
+                    "text": "停止"
+                },
+                {
+                    "textContains": "停止"
+                },
+                {
+                    "descriptionContains": "停止"
+                }
+            ],
+            "expect": [
+                [
+                    {
+                        "text": "生成大纲",
+                        "className": "android.webkit.WebView"
+                    }
+                ]
+            ],
+            "pick": "first"
+        },
+        {
+            "name": "return_to_templates",
+            "action": "back",
+            "expect": [
+                [
+                    {
+                        "text": "AIPPT",
+                        "className": "android.widget.TextView"
+                    }
+                ],
+                [
+                    {
+                        "text": "AI简历",
+                        "className": "android.widget.TextView"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_home",
+            "action": "click",
+            "clickBounds": true,
+            "native_click": true,
+            "selectors": [
+                {
+                    "resourceId": "cn.wps.moffice_eng:id/phone_home_toolbar_item_text",
+                    "text": "首页"
+                }
+            ],
+            "expect": [
+                [
+                    {
+                        "text": "最近"
+                    },
+                    {
+                        "text": "文档"
+                    }
+                ]
+            ]
+        }
+    ]
+}

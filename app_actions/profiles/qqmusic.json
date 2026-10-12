@@ -1,0 +1,109 @@
+{
+    "app": "qqmusic",
+    "package": "com.tencent.qqmusic",
+    "validation": "UNVERIFIED_ON_DEVICE",
+    "fast_mode": true,
+    "evidence": "final",
+    "poll_interval": 0.15,
+    "cache_window_size": true,
+    "success_evidence": "screenshot",
+    "home": [
+        [
+            {
+                "resourceId": "com.tencent.qqmusic:id/c2d"
+            }
+        ],
+        [
+            {
+                "text": "音乐馆"
+            },
+            {
+                "text": "首页"
+            },
+            {
+                "text": "我的"
+            }
+        ]
+    ],
+    "steps": [
+        {
+            "name": "open_search",
+            "action": "click",
+            "native_click": true,
+            "clickBounds": true,
+            "selectors": [
+                {
+                    "resourceId": "com.tencent.qqmusic:id/c2d"
+                }
+            ],
+            "expect": [
+                [
+                    {
+                        "resourceId": "com.tencent.qqmusic:id/searchItem"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "input_keyword",
+            "action": "input",
+            "selectors": [
+                {
+                    "resourceId": "com.tencent.qqmusic:id/searchItem"
+                }
+            ],
+            "value": "周杰伦"
+        },
+        {
+            "name": "submit_search",
+            "action": "enter",
+            "native_expect": true,
+            "expect_timeout": 5,
+            "trace_timing": true,
+            "expect": [
+                [
+                    {
+                        "description": "歌曲 按钮"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "scroll_results",
+            "action": "swipe_up",
+            "native_expect": true,
+            "expect_timeout": 1,
+            "trace_timing": true,
+            "expect": [
+                [
+                    {
+                        "description": "歌曲 按钮"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_home",
+            "action": "swipe_right",
+            "duration": 0.2,
+            "expect": [
+                [
+                    {
+                        "resourceId": "com.tencent.qqmusic:id/c2d"
+                    }
+                ],
+                [
+                    {
+                        "text": "音乐馆"
+                    },
+                    {
+                        "text": "首页"
+                    },
+                    {
+                        "text": "我的"
+                    }
+                ]
+            ]
+        }
+    ]
+}
