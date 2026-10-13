@@ -1,14 +1,27 @@
 <div align="center">
 
-# 📱 Android App Launch Benchmark
+# 🚇 RushHour-benchmark
 
-**面向 rooted Android 设备的多应用启动、内存压力与进程存活率基准测试工具**
+**早高峰 · 面向 rooted Android 设备的多应用启动、内存压力与进程存活率基准测试工具**
 
 `Kotlin/JVM` · `ADB` · `Coroutines` · `Clikt` · `Gradle`
 
 🚀 启动性能　·　🧠 内存压力　·　💾 Swap 对比　·　🌡️ 温度监控　·　❤️ 进程存活率
 
 </div>
+
+---
+
+## 🚇 名字由来
+
+早高峰的地铁：车厢（内存）只有那么大，乘客（App）一站站往上挤，先上车的被压得最久，挤不上去的只能被请下车。
+
+这个项目测的正是同一件事：
+
+- 一轮连续启动 = 一趟车，`launchPosition` = 上车顺序
+- zRAM / Flash Swap = 把行李压缩、挪到行李车，好让车厢再多塞几个人
+- LMKD 杀进程 = 挤不下时被请下车，`survival.csv` 记录谁一直站到了终点
+- `am start -W` 的耗时与渲染延迟 = 越挤，开门关门（启动）变得有多慢
 
 ---
 
