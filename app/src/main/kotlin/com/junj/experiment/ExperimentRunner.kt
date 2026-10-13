@@ -7,6 +7,7 @@ import com.junj.device.pid.isApplicationProcessAlive
 import com.junj.device.pid.waitForApplicationPid
 import com.junj.device.simulator.TouchSimulator
 import com.junj.domain.ExperimentResults
+import com.junj.domain.TestClock
 import com.junj.domain.app.ApplicationInfo
 import com.junj.domain.launch.LaunchApplicationItem
 import com.junj.domain.survival.AppSurvivalResult
@@ -23,6 +24,7 @@ class ExperimentRunner(
     private val results: ExperimentResults,
     private val logger: Logger,
     private val config: ExperimentConfig,
+    private val clock: TestClock,
 ) {
     private data class LaunchedAppProcess(
         val launchPosition: Int,
@@ -35,6 +37,7 @@ class ExperimentRunner(
         val launchedProcesses = ArrayList<LaunchedAppProcess>()
         for ((index, app) in apps.withIndex()) {
             val launchStartNs = System.nanoTime()
+            val launchStamp = clock.elapsedMs()
             val nextLaunchNs = launchStartNs + config.launchIntervalMs * 1_000_000L
             adb.rootShell("dumpsys gfxinfo ${app.packageName} reset")
             val amStartResult = adb.shell("am start -W -n ${app.componentName}")
@@ -45,6 +48,7 @@ class ExperimentRunner(
             val meminfo = adb.shell("dumpsys meminfo ${app.packageName}")
 
             val result = LaunchApplicationItem(
+                launchStamp = launchStamp,
                 amStartRound = round,
                 amStartAppName = app.name,
                 amStartLaunchState = regexFindField(CommandType.AM_START, ResultField.LAUNCH_STATE, amStartResult.output) ?: "",

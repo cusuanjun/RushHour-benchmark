@@ -68,6 +68,7 @@ fun saveLaunchResultsToCsv(results: List<LaunchApplicationItem>, outputFile: Fil
     outputFile.bufferedWriter(Charsets.UTF_8).use { writer ->
         writer.appendLine(
             listOf(
+                "launchStamp(ms)",
                 "amStartRound",
                 "amStartAppName",
                 "amStartLaunchState",
@@ -86,6 +87,7 @@ fun saveLaunchResultsToCsv(results: List<LaunchApplicationItem>, outputFile: Fil
         results.forEach { item ->
             writer.appendLine(
                 listOf(
+                    item.launchStamp,
                     item.amStartRound,
                     item.amStartAppName,
                     item.amStartLaunchState,
@@ -130,7 +132,7 @@ fun saveSampleResultsToCsv(
     outputFile.bufferedWriter(Charsets.UTF_8).use { writer ->
         writer.appendLine(
             listOf(
-                "sampleStamp",
+                "sampleStamp(ms)",
                 "memTotal(KB)",
                 "memFree(KB)",
                 "memAvailable(KB)",

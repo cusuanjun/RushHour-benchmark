@@ -7,6 +7,7 @@ import com.junj.device.logcat.startLogcatProcess
 import com.junj.device.process.destroyProcessTree
 import com.junj.device.swap.initSwapByType
 import com.junj.domain.ExperimentResults
+import com.junj.domain.TestClock
 import com.junj.domain.app.appNameSet
 import com.junj.domain.app.globalAppInfos
 import com.junj.experiment.ExperimentRunner
@@ -23,7 +24,7 @@ import kotlinx.coroutines.runBlocking
 import kotlin.random.Random
 
 fun main(args: Array<String>) = runBlocking {
-    rebootDevice()
+//    rebootDevice()
     val config = parseArgs(args)
     val output = ExperimentOutputPaths(config.outputDirectory)
     output.create()
@@ -39,29 +40,31 @@ fun main(args: Array<String>) = runBlocking {
 
     initSwapByType(config.swapType, config.flashSwapDeviceSizeMb, logger)
 
+    val clock = TestClock()
     val runner = ExperimentRunner(
         adb = ProcessAdbExecutor,
         apps = apps,
         results = results,
         logger = logger,
         config = config,
+        clock = clock,
     )
     val samplingJob = SamplingJob(
         collector = MetricsCollector(ProcessAdbExecutor),
         results = results,
         logger = logger,
         intervalMs = config.sampleIntervalMs,
+        clock = clock,
     ).start(this)
     val logcatProcess = startLogcatProcess(output.logcat)
 
-    val testStartNs = System.nanoTime()
     try {
         for (round in 1..config.testRoundCount) {
             runner.runTestRound(round)
             apps = apps.reversed()
         }
     } finally {
-        val elapsedNs = System.nanoTime() - testStartNs
+        val elapsedMs = clock.elapsedMs()
         samplingJob.cancelAndJoin()
         destroyProcessTree(logcatProcess)
 
@@ -76,7 +79,7 @@ fun main(args: Array<String>) = runBlocking {
             logsPath = "logs/${config.timestamp}/*.log",
         )
         SummaryReporter(logger).report(summary)
-        logger.log(LogType.SUMMARY, "Test round runtime: ${elapsedNs / 1_000_000_000}s")
+        logger.log(LogType.SUMMARY, "Test round runtime: ${elapsedMs / 1_000}s")
         saveCsv(results, output, config.sampleIntervalMs)
         logger.close()
     }

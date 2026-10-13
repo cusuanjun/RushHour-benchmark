@@ -216,7 +216,7 @@ randomSeed=100, appOrder=wechat, zhihu, ...
 | 配置 | 值 | 当前实际作用 |
 |---|---:|---|
 | 测试轮数 | 5 | 每次运行执行 5 个 round |
-| `sampleIntervalMs` | 10,000 ms | 传给 CSV 带宽计算；当前未用于调度等待 |
+| `sampleIntervalMs` | 2,000 ms | 固定采样周期（绝对时刻调度），同时作为 CSV 带宽计算的除数 |
 | 相邻 App 启动间隔 | 15,000 ms | 使用 monotonic deadline 控制 |
 | gfxinfo/meminfo 收集时刻 | 启动后 12,000 ms | 在此时读取渲染与 PSS 数据 |
 | Flash Swap 大小 | 4096 MB | 创建 Flash Swap 文件时使用 |
@@ -224,21 +224,21 @@ randomSeed=100, appOrder=wechat, zhihu, ...
 
 ### 📈 当前采样节拍
 
-系统采样执行：
-
-```bash
-vmstat 1 2
-```
+系统采样一轮要读 [`vmstat 1 2`](app/src/main/kotlin/com/junj/metrics/MetricsCollector.kt)、`/proc/meminfo`、`/proc/pressure/memory`、`dumpsys thermalservice`、zRAM 的 `mm_stat`/`bd_stat` 和 4 个 zSwap 计数器。
 
 解析器跳过两行表头并读取最后一行，因此 vmstat 的速率和 CPU 字段代表最近约 1 秒的区间值，而非设备启动以来的首行平均值。
 
-当前 [`SamplingJob.kt`](app/src/main/kotlin/com/junj/metrics/SamplingJob.kt) 中的 `delay(intervalMs)` 被注释，所以采样循环会在上一轮采集完成后立即开始下一轮。实际周期约为：
+这些命令被合并成**一次 adb 调用**：整段脚本通过 stdin 交给设备上的 `su -c sh` 顺序执行，每段数据前打印一行 `@@DSH@@ 段名` 标记，取回后在宿主端按标记切分，再分别喂给原有解析器。于是一轮采样只付一次 bash/`adb.exe` 进程启动和一次 ADB 往返的代价（原来是 10 次）。缺文件的段（例如没有 zSwap 或 zRAM）会退化成 `0`，不会打断采样。
+
+[`SamplingJob.kt`](app/src/main/kotlin/com/junj/metrics/SamplingJob.kt) 采用**绝对时刻调度**：每一拍都对齐到「测试开始 + n × `sampleIntervalMs`」这条网格线，而不是「上一轮采集完再 sleep」。这样采集耗时不会被累加进周期，间隔保持固定：
 
 ```text
-vmstat 的约 1 秒等待 + 其他 ADB 命令耗时
+采样时刻 ≈ 0s, 2s, 4s, 6s ...（默认 sampleIntervalMs = 2,000 ms）
 ```
 
-这意味着当前有效采样间隔并不是配置中的 10 秒；同时 CSV 中部分带宽仍使用 `sampleIntervalMs=10s` 计算。解释带宽数据前请先恢复调度逻辑或改用真实时间差。
+单轮采集（一次 adb 调用）实测约 1.2–1.3 秒，在 2 秒周期内留有余量；若某轮因设备卡顿超过 2 秒，则跳过错过的节拍（不补采），避免出现连续突发采集。节拍与 `sampleIntervalMs` 一致，因此 CSV 里按该值计算的带宽列也是准确的。
+
+`launch.csv` 与 `sample.csv` 的第一列是同一单调时钟下、从测试开始计算的真实毫秒时间戳，因此两份文件可以直接放在同一条时间轴上对齐（例如把每次启动事件叠加到内存/温度曲线上）。
 
 ---
 
@@ -326,6 +326,7 @@ logs/
 
 每次 App 启动一行，包含：
 
+- 从测试开始起的毫秒时间戳（`launchStamp(ms)`）
 - round、App 名称和 LaunchState
 - TotalTime、WaitTime、Status
 - Janky frames
@@ -336,6 +337,7 @@ logs/
 
 每次系统采样一行，包含：
 
+- 从测试开始起的毫秒时间戳（`sampleStamp(ms)`）
 - MemTotal、MemFree、MemAvailable、SwapTotal/Free/Cached
 - memory PSI some/full
 - vmstat 的进程、内存、I/O、CPU 数据
@@ -416,7 +418,7 @@ adb.exe shell cmd package resolve-activity --brief com.example.app
 
 ```kotlin
 const val DEFAULT_TEST_ROUND_COUNT = 5
-const val DEFAULT_SAMPLE_INTERVAL_MS = 10_000L
+const val DEFAULT_SAMPLE_INTERVAL_MS = 2_000L
 const val DEFAULT_LAUNCH_INTERVAL_MS = 15_000L
 const val DEFAULT_COLLECT_DELAY_MS = 12_000L
 ```
@@ -453,8 +455,9 @@ bash test.sh
 - 仅支持默认 ADB 设备，暂不支持 `-s <serial>`。
 - ADB stderr 与 stdout 合并；部分失败输出可能被当作普通文本解析。
 - 多数解析失败会回退为 `0`，无法区分“真实为零”和“采集失败”。
-- 当前实际采样周期约为 1 秒加命令开销，与 `sampleIntervalMs=10s` 不一致。
-- CSV 中部分派生带宽仍按配置的 10 秒计算，当前可能低估真实速率。
+- 采样节拍固定对齐到 `sampleIntervalMs`（默认 2s）网格；若某轮采集超过 2s 就会跳过该节拍，那一处间隔会变成 4s。
+- CSV 派生带宽按 `sampleIntervalMs` 计算，与固定节拍一致；但第 0 行用的是开机以来的累计计数，会得到一个虚高的带宽值。
+- `SamplingJob` 的 try/catch 包在 while 之外，单次采集抛异常会终止整个采样任务；目前只有 zRAM 段解析做了容错。
 - 每轮后的局部 `apps.reversed()` 不会改变 `ExperimentRunner` 的实际顺序。
 - `app_actions` 依赖当前前台页面符合 profile 的 home 校验；弹窗、登录状态或 UI 版本变化会导致脚本失败。
 - 用户操作脚本失败只打印到终端，不会中止 benchmark，也不会写入结构化结果文件。

@@ -26,110 +26,47 @@
             "action": "click",
             "selectors": [
                 {
-                    "text": "找模板"
+                    "text": "\u627e\u6a21\u677f"
                 },
                 {
-                    "textContains": "模板"
+                    "textContains": "\u6a21\u677f"
                 }
             ],
             "expect": [
                 [
                     {
-                        "text": "推荐"
+                        "text": "\u63a8\u8350"
                     },
                     {
-                        "text": "模板"
-                    },
-                    {
-                        "text": "稻壳"
+                        "text": "AI\u6a21\u677f"
                     }
                 ]
             ]
         },
         {
-            "name": "open_aippt",
-            "action": "click",
-            "clickBounds": true,
-            "selectors": [
-                {
-                    "text": "WPS AIPPT"
-                },
-                {
-                    "textContains": "AIPPT"
-                }
-            ],
+            "name": "scroll_templates",
+            "action": "swipe_up",
+            "duration": 0.25,
             "expect": [
                 [
                     {
-                        "text": "立即生成"
-                    }
-                ]
-            ],
-            "pick": "first"
-        },
-        {
-            "name": "generate_ppt",
-            "action": "click",
-            "clickBounds": true,
-            "selectors": [
-                {
-                    "text": "立即生成"
-                },
-                {
-                    "textContains": "立即生成"
-                }
-            ],
-            "expect": [
-                [
-                    {
-                        "text": "生成大纲"
-                    }
-                ]
-            ],
-            "pick": "first"
-        },
-        {
-            "name": "generate",
-            "action": "wait",
-            "seconds": 0.5,
-            "expect": [
-                [
-                    {
-                        "text": "停止"
+                        "text": "\u63a8\u8350"
                     },
                     {
-                        "textContains": "停止"
+                        "text": "AI\u6a21\u677f"
                     },
                     {
-                        "descriptionContains": "停止"
+                        "textContains": "\u66f4\u591a"
                     }
                 ]
             ]
         },
         {
-            "name": "stop_generation",
-            "action": "click",
-            "clickBounds": true,
-            "selectors": [
-                {
-                    "text": "停止"
-                },
-                {
-                    "textContains": "停止"
-                },
-                {
-                    "descriptionContains": "停止"
-                }
-            ],
-            "expect": [
-                [
-                    {
-                        "text": "生成大纲",
-                        "className": "android.webkit.WebView"
-                    }
-                ]
-            ],
-            "pick": "first"
+            "name": "open_first_template",
+            "action": "tap_ratio",
+            "x_ratio": 0.5,
+            "y_ratio": 0.72,
+            "skip_post_check": true
         },
         {
             "name": "return_to_templates",
@@ -137,14 +74,18 @@
             "expect": [
                 [
                     {
-                        "text": "AIPPT",
-                        "className": "android.widget.TextView"
+                        "text": "\u63a8\u8350"
+                    },
+                    {
+                        "text": "AI\u6a21\u677f"
                     }
                 ],
                 [
                     {
-                        "text": "AI简历",
-                        "className": "android.widget.TextView"
+                        "text": "\u627e\u6a21\u677f"
+                    },
+                    {
+                        "textContains": "\u6a21\u677f"
                     }
                 ]
             ]
@@ -152,21 +93,22 @@
         {
             "name": "return_to_home",
             "action": "click",
-            "clickBounds": true,
             "native_click": true,
             "selectors": [
                 {
                     "resourceId": "cn.wps.moffice_eng:id/phone_home_toolbar_item_text",
-                    "text": "首页"
+                    "text": "\u9996\u9875"
                 }
             ],
+            "native_expect_groups": true,
+            "expect_timeout": 2,
             "expect": [
                 [
                     {
-                        "text": "最近"
+                        "text": "\u6700\u8fd1"
                     },
                     {
-                        "text": "文档"
+                        "text": "\u6587\u6863"
                     }
                 ]
             ]

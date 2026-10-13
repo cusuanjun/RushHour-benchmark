@@ -1,6 +1,7 @@
 """Execute one fixed app scenario from an already-open home page."""
 import argparse
 from datetime import datetime
+import importlib.util
 import json
 import math
 from pathlib import Path
@@ -915,6 +916,7 @@ def run(device, app, out_dir=None, timeout=12.0, profile_path=None,
               "initialization_breakdown_seconds": initialization}
     row = None
     home_verified = False
+    return_steps = []
     try:
         validate_profile(profile)
         if not math.isfinite(hold_seconds) or hold_seconds < 0:
@@ -1032,24 +1034,78 @@ def run(device, app, out_dir=None, timeout=12.0, profile_path=None,
         result["error"] = "%s: %s" % (type(exc).__name__, exc)
     finally:
         if row is not None and row["status"] == "RUNNING":
-            row.update(status="FAIL", error=result["error"])
+            row.update(
+                status="FAIL",
+                error=result["error"],
+            )
+
         if hold_seconds and "time_budget_met" not in result:
             result["time_budget_met"] = False
+
         if result["status"] == "PASS":
             if profile.get("capture_success", False):
                 scenario.capture("final")
         else:
             scenario.capture("failure")
 
-        if app == "weibo" and home_verified and result["status"] != "PASS":
+        # WPS中途失败时，仍依次执行末尾的返回步骤。
+        if (
+            app == "wps"
+            and home_verified
+            and result["status"] != "PASS"
+            and return_steps
+        ):
+            recovered = False
+
+            for step_index in return_steps:
+                cleanup = profile["steps"][step_index]
+                recovery = {
+                    "name": "recover_" + cleanup["name"],
+                    "status": "RUNNING",
+                }
+                result["steps"].append(recovery)
+
+                try:
+                    recovery["detail"] = scenario.execute(cleanup)
+                    recovery["status"] = "PASS"
+
+                    if cleanup["name"] == "return_to_home":
+                        recovered = True
+                except Exception as exc:
+                    recovery.update(
+                        status="FAIL",
+                        error="%s: %s"
+                        % (type(exc).__name__, exc),
+                    )
+                    continue
+
+            scenario.capture(
+                "recovery_home"
+                if recovered
+                else "recovery_failure"
+            )
+
+        if (
+            app == "weibo"
+            and home_verified
+            and result["status"] != "PASS"
+        ):
             cleanup = next(
-                (s for s in profile["steps"]
-                 if s.get("name") == "return_to_home"),
+                (
+                    step
+                    for step in profile["steps"]
+                    if step.get("name") == "return_to_home"
+                ),
                 None,
             )
+
             if cleanup is not None:
-                recovery = {"name": "recover_to_home"}
+                recovery = {
+                    "name": "recover_to_home",
+                    "status": "RUNNING",
+                }
                 result["steps"].append(recovery)
+
                 try:
                     recovery["detail"] = scenario.execute(cleanup)
                     recovery["status"] = "PASS"
@@ -1057,14 +1113,34 @@ def run(device, app, out_dir=None, timeout=12.0, profile_path=None,
                 except Exception as exc:
                     recovery.update(
                         status="FAIL",
-                        error=f"{type(exc).__name__}: {exc}",
+                        error="%s: %s"
+                        % (type(exc).__name__, exc),
                     )
                     scenario.capture("recovery_failure")
 
-        result["elapsed_seconds"] = round(time.monotonic() - started, 3)
+        result["elapsed_seconds"] = round(
+            time.monotonic() - started,
+            3,
+        )
+
         (folder / "result.json").write_text(
-            json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+            json.dumps(
+                result,
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
     return result
+
+
+def run_douyin(device, out_dir):
+    path = ROOT.parent / "douyin" / "douyin.py"
+    spec = importlib.util.spec_from_file_location("verified_douyin", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.run(device, out_dir) if out_dir else module.run(device)
 
 
 def main(default_app=None):
@@ -1086,9 +1162,16 @@ def main(default_app=None):
         parser.error("--time must be finite and nonnegative")
     if not math.isfinite(args.interval) or args.interval < 0:
         parser.error("--interval must be finite and nonnegative")
+    # if args.app == "douyin" and args.time:
+    #     parser.error("douyin has no return_to_home step for --time")
+    # if args.app == "douyin" and args.interval:
+    #     parser.error("douyin uses a separate runner without --interval support")
     if args.list:
-        path = args.profile or ROOT / "profiles" / (args.app + ".json")
-        print(path.read_text(encoding="utf-8"))
+        if args.app == "douyin":
+            print("Verified scenario: view 3 posts, swipe twice, dwell 3s each")
+        else:
+            path = args.profile or ROOT / "profiles" / (args.app + ".json")
+            print(path.read_text(encoding="utf-8"))
         return 0
     try:
         import uiautomator2 as u2
@@ -1112,16 +1195,11 @@ def main(default_app=None):
                 device.app_current(), ensure_ascii=False, indent=2), encoding="utf-8")
             print(folder)
             return 0
-        result = run(
-            device,
-            args.app,
-            args.out,
-            profile_path=args.profile,
-            hold_seconds=args.time,
-            script_started=script_started,
-            interval_seconds=args.interval,
-            startup_timing=startup_timing,
-        )
+        result = (run_douyin(device, args.out) if args.app == "douyin"
+                  else run(device, args.app, args.out, profile_path=args.profile,
+                           hold_seconds=args.time, script_started=script_started,
+                           interval_seconds=args.interval,
+                           startup_timing=startup_timing))
     except Exception as exc:
         print("%s: %s" % (type(exc).__name__, exc), file=sys.stderr)
         return 1

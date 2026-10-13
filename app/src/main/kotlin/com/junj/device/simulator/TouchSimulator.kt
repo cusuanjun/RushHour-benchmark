@@ -22,7 +22,9 @@ class TouchSimulator(
      */
     fun simulate(name: String) {
         Thread.sleep(4_000)
-        if (name == "douyin" || name == "kuaishou" || name == "zhihu") {
+        if (name in arrayOf("dianping", "jd", "meituan", "xiecheng", "qqmusic", "weixin", "jd"))
+            return
+        if (name in arrayOf("douyin", "kuaishou", "zhihu")) {
             simulateShortVideoFeed(3, 3_000)
             return
         }

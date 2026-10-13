@@ -24,12 +24,15 @@ fun parseZramMmStatResult(output: String): ZramMmStatResult? {
     if (values.size < 9)
         return null
 
-    return ZramMmStatResult(
-        origDataSize = values[0].toLong(),
-        comprDataSize = values[1].toLong(),
-        memUsedTotal = values[2].toLong(),
-        memUsedMax = values[4].toLong()
-    )
+    // mm_stat 不存在时，段内容会是 cat 的报错文本，解析失败必须回退为 null（否则会中断整个采样任务）。
+    return runCatching {
+        ZramMmStatResult(
+            origDataSize = values[0].toLong(),
+            comprDataSize = values[1].toLong(),
+            memUsedTotal = values[2].toLong(),
+            memUsedMax = values[4].toLong()
+        )
+    }.getOrNull()
 }
 
 fun parseZramBdStatResult(output: String): ZramBdStatResult? {
@@ -41,9 +44,11 @@ fun parseZramBdStatResult(output: String): ZramBdStatResult? {
         ?: return null
     if (values.size < 3)
         return null
-    return ZramBdStatResult(
-        bdCount = values[0].toLong(),
-        bdReads = values[1].toLong(),
-        bdWrites = values[2].toLong(),
-    )
+    return runCatching {
+        ZramBdStatResult(
+            bdCount = values[0].toLong(),
+            bdReads = values[1].toLong(),
+            bdWrites = values[2].toLong(),
+        )
+    }.getOrNull()
 }
