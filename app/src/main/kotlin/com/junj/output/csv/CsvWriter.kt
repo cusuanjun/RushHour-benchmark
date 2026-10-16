@@ -171,6 +171,8 @@ fun saveSampleResultsToCsv(
                 "zramBdWrites",
                 "zramBdReadBw(KB/s)",
                 "zramBdWriteBw(KB/s)",
+                "zswapStoredPages",
+                "zswapPoolTotalSize(B)",
                 "zswapPoolLimitHit",
                 "zswapWrittenBackPages",
                 "zswapWriteBw(KB/s)",
@@ -219,10 +221,13 @@ fun saveSampleResultsToCsv(
                     item.zramBdWrites,
                     if (index == 0) item.zramBdReads * 4 * 1024 / sampleIntervalMs else (item.zramBdReads - results[index - 1].zramBdReads) * 4 * 1024 / sampleIntervalMs,
                     if (index == 0) item.zramBdWrites * 4 * 1024 / sampleIntervalMs else (item.zramBdWrites - results[index - 1].zramBdWrites) * 4 * 1024 / sampleIntervalMs,
+                    item.zswapStoredPages,
+                    item.zswapPoolTotalSize,
                     item.zswapPoolLimitHit,
                     item.zswapWrittenBackPages,
-                    if (index == 0) (item.zswapPoolLimitHit + item.zswapWrittenBackPages) * 4 * 1024 / sampleIntervalMs
-                    else (item.zswapPoolLimitHit + item.zswapWrittenBackPages - results[index - 1].zswapPoolLimitHit - results[index - 1].zswapWrittenBackPages) * 4 * 1024 / sampleIntervalMs
+                    // 池满被拒绝的页不会写入 swap 设备，不能算进写回吞吐；这里只把 zswap 回写到 swap 设备的页换算成 KB/s。
+                    if (index == 0) item.zswapWrittenBackPages * 4L * 1000L / sampleIntervalMs
+                    else (item.zswapWrittenBackPages - results[index - 1].zswapWrittenBackPages) * 4L * 1000L / sampleIntervalMs
                 ).joinToString(",") { value->
                     escapeCsv(value.toString())
                 }
