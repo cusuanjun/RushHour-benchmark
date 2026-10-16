@@ -1,0 +1,52 @@
+package com.junj.output.reporting
+
+import com.junj.config.ExperimentConfig
+import com.junj.output.logging.Logger
+import java.io.File
+import java.nio.file.Files
+import kotlin.test.Test
+import kotlin.test.assertTrue
+
+class RunHeaderTest {
+    @Test
+    fun `writes schema, run and config sections before the test starts`() {
+        val directory = Files.createTempDirectory("header-test").toFile()
+        try {
+            Logger(directory).use { logger ->
+                logRunHeader(
+                    logger = logger,
+                    config = ExperimentConfig(
+                        swapType = 1,
+                        appSetNumber = 0,
+                        randomSeed = 0,
+                        timestamp = "20261016_120000_light_onlyZram",
+                        outputDirectory = directory,
+                        flashSwapDeviceSizeMB = 4096,
+                    ),
+                    appNames = listOf("bilibili", "wps"),
+                    outputDirectory = directory,
+                )
+            }
+
+            val text = File(directory, "summary.txt").readText()
+
+            assertTrue(text.startsWith("# schema=2"), text)
+            assertTrue(text.contains("[run]"), text)
+            assertTrue(text.contains("run.id=20261016_120000_light_onlyZram"), text)
+            assertTrue(text.contains("run.logsPath=${directory.path}"), text)
+            assertTrue(text.contains("[config]"), text)
+            assertTrue(text.contains("config.seed=0"), text)
+            assertTrue(text.contains("config.appSet=0"), text)
+            assertTrue(text.contains("config.appOrder=bilibili,wps"), text)
+            assertTrue(text.contains("config.swapType=1"), text)
+            assertTrue(text.contains("config.flashSwapMiB=4096"), text)
+            assertTrue(text.contains("config.testRounds=10"), text)
+            assertTrue(text.contains("config.sampleIntervalMs=2000"), text)
+            assertTrue(text.contains("config.launchIntervalMs=20000"), text)
+            // 头部在这里结束：结果分节由 reportSummary 稍后追加
+            assertTrue(text.endsWith("config.collectDelayMs=18000\n"), text)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+}

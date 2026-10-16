@@ -1,11 +1,12 @@
 package com.junj
 
+import com.junj.cli.ArgType
 import com.junj.cli.parseArgs
 import com.junj.device.adb.ProcessAdbExecutor
 import com.junj.device.lifecycle.rebootDevice
 import com.junj.device.logcat.startLogcatProcess
 import com.junj.device.process.destroyProcessTree
-import com.junj.device.swap.initSwapByType
+import com.junj.device.swap.SwapController
 import com.junj.domain.ExperimentResults
 import com.junj.domain.TestClock
 import com.junj.domain.app.appNameSet
@@ -15,17 +16,17 @@ import com.junj.metrics.MetricsCollector
 import com.junj.metrics.SamplingJob
 import com.junj.output.ExperimentOutputPaths
 import com.junj.output.csv.saveCsv
-import com.junj.output.logging.LogType
 import com.junj.output.logging.Logger
-import com.junj.output.reporting.SummaryReporter
-import com.junj.output.reporting.calculateSummary
+import com.junj.output.reporting.CompressionEngine
+import com.junj.output.reporting.logRunHeader
+import com.junj.output.reporting.reportSummary
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlin.random.Random
 
 fun main(args: Array<String>) = runBlocking {
-//    rebootDevice()
     val config = parseArgs(args)
+    rebootDevice()
     val output = ExperimentOutputPaths(config.outputDirectory)
     output.create()
     val logger = Logger(output.directory)
@@ -33,12 +34,13 @@ fun main(args: Array<String>) = runBlocking {
     var apps = globalAppInfos
         .filter { it.name in appNameSet[config.appSetNumber] }
         .shuffled(Random(config.randomSeed))
-    logger.log(
-        LogType.SUMMARY,
-        "randomSeed=${config.randomSeed}, appOrder=${apps.joinToString { it.name }}",
-    )
+    logRunHeader(logger, config, apps.map { it.name }, output.directory)
 
-    initSwapByType(config.swapType, config.flashSwapDeviceSizeMb, logger)
+    SwapController(
+        adb = ProcessAdbExecutor,
+        logger = logger,
+        config = config,
+    ).initSwapByType()
 
     val clock = TestClock()
     val runner = ExperimentRunner(
@@ -58,7 +60,9 @@ fun main(args: Array<String>) = runBlocking {
     ).start(this)
     val logcatProcess = startLogcatProcess(output.logcat)
 
+
     try {
+        ProcessAdbExecutor.rootShell("""am start -W -n hello.litiaotiao.app/hello.litiaotiao.app.MainActivity""")
         for (round in 1..config.testRoundCount) {
             runner.runTestRound(round)
             apps = apps.reversed()
@@ -69,17 +73,25 @@ fun main(args: Array<String>) = runBlocking {
         destroyProcessTree(logcatProcess)
 
         val lmkdCount = output.logcat.useLines { lines -> lines.count() }
-        val summary = calculateSummary(
+        reportSummary(
+            logger = logger,
             launches = results.launches,
             samples = results.samples,
             survivals = results.survivals,
             appCount = apps.size,
             testRoundCount = config.testRoundCount,
+            // 只有 zRAM / zSWAP 才存在压缩率；另外两种类型固定输出 engine=none
+            compressionEngine = when (config.swapType) {
+                ArgType.ONLY_ZRAM.code -> CompressionEngine.ZRAM
+                ArgType.ZSWAP.code -> CompressionEngine.ZSWAP
+                else -> CompressionEngine.NONE
+            },
+            runtimeMs = elapsedMs,
             lmkdCount = lmkdCount,
-            logsPath = "logs/${config.timestamp}/*.log",
+            swapInLatStats = ProcessAdbExecutor
+                .rootShell("cat /sys/kernel/mm/swapin_latency/stats")
+                .output,
         )
-        SummaryReporter(logger).report(summary)
-        logger.log(LogType.SUMMARY, "Test round runtime: ${elapsedMs / 1_000}s")
         saveCsv(results, output, config.sampleIntervalMs)
         logger.close()
     }
