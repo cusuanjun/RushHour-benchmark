@@ -8,10 +8,13 @@ private const val DEFAULT_REBOOT_TIMEOUT_SECONDS = 300L
 private const val REBOOT_POLL_INTERVAL_MS = 1_000L
 private const val SCREEN_WAKE_WAIT_MS = 1_000L
 private const val KEYGUARD_DISMISS_WAIT_MS = 1_000L
-private const val POST_BOOT_STABILIZATION_WAIT_MS = 60_000L
+private const val POST_BOOT_REST_WAIT_MS = 300_000L
 private const val ANDROID_BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id"
 
-/** Reboots the connected Android device and waits for Android boot completion. */
+/**
+ * 重启设备并等到 Android 开机完成（boot_completed=1 且 boot_id 变化），随后亮屏、解除无密码锁屏，
+ * 再静置 [POST_BOOT_REST_WAIT_MS]（5 分钟），让开机后的 dex2oat / 媒体扫描 / 内存回收自行平息。
+ */
 fun rebootDevice(timeoutSeconds: Long = DEFAULT_REBOOT_TIMEOUT_SECONDS) {
     require(timeoutSeconds > 0) { "timeoutSeconds must be greater than 0" }
 
@@ -73,9 +76,9 @@ private fun wakeAndUnlockDevice() {
     Thread.sleep(KEYGUARD_DISMISS_WAIT_MS)
     println("Android display is awake and the non-secure keyguard was dismissed.")
 
-    val waitStartNs = System.nanoTime()
-    println("Starting post-boot stabilization wait: $POST_BOOT_STABILIZATION_WAIT_MS ms.")
-    Thread.sleep(POST_BOOT_STABILIZATION_WAIT_MS)
-    val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - waitStartNs)
-    println("Post-boot stabilization wait finished: elapsed=${elapsedMs} ms.")
+    val restStartNs = System.nanoTime()
+    println("Post-boot rest wait started: $POST_BOOT_REST_WAIT_MS ms.")
+    Thread.sleep(POST_BOOT_REST_WAIT_MS)
+    val restElapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - restStartNs)
+    println("Post-boot rest wait finished: elapsed=$restElapsedMs ms.")
 }
