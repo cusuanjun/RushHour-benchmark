@@ -6,6 +6,7 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.options.validate
 import com.github.ajalt.clikt.parameters.types.int
+import com.junj.config.DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB
 import com.junj.config.ExperimentConfig
 import com.junj.domain.app.AppSetType
 import com.junj.output.logging.getTimeStamp
@@ -37,7 +38,7 @@ class AppCommand : CliktCommand(name = "android-app-launch-test") {
 
     val appSetNumber: Int by option(
         "-a",
-        "--app-set",
+        "--apps",
         help = "app set number: 0=light, 1=mid, 2=heavy"
     )
         .int()
@@ -50,7 +51,7 @@ class AppCommand : CliktCommand(name = "android-app-launch-test") {
 
     val logPath: String? by option(
         "-p",
-        "--logPath",
+        "--prefix",
         help = "Optional log output path",
     )
 
@@ -62,11 +63,32 @@ class AppCommand : CliktCommand(name = "android-app-launch-test") {
         .int()
         .default(0)
 
+    val flashSize: Int? by option(
+        "-f",
+        "--flash_size",
+        help = "Flash swap device size in MB; only used by the flash swap types " +
+            "(-t ${ArgType.ONLY_FLASH_SWAP.code} and -t ${ArgType.ZSWAP.code}). " +
+            "Optional, defaults to $DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB MB.",
+    )
+        .int()
+
     override fun run() = Unit
 }
 
 fun parseArgs(args: Array<String>): ExperimentConfig {
     val command = AppCommand().also { it.main(args) }
+    val flashSize = command.flashSize
+    if (flashSize != null) {
+        require(
+            command.type == ArgType.ONLY_FLASH_SWAP.code || command.type == ArgType.ZSWAP.code
+        ) {
+            "-f/--flash_size is only applicable to the flash swap types: " +
+                "-t ${ArgType.ONLY_FLASH_SWAP.code} (flash swap) or -t ${ArgType.ZSWAP.code} (zSwap)"
+        }
+        require(flashSize > 0) { "flash_size must be greater than 0, got $flashSize" }
+    }
+    val flashSwapDeviceSizeMB = flashSize ?: DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB
+
     val suffix = buildString {
         when (command.appSetNumber) {
             AppSetType.LIGHT.code -> append("_light")
@@ -76,8 +98,8 @@ fun parseArgs(args: Array<String>): ExperimentConfig {
         when(command.type) {
             0 -> append("_noSwap")
             1 -> append("_onlyZram")
-            2 -> append("_flashSwap")
-            3 -> append("_zswap")
+            2 -> append("_flashSwap$flashSwapDeviceSizeMB")
+            3 -> append("_zswap$flashSwapDeviceSizeMB")
         }
         command.logPath?.let { append("_$it") }
     }
@@ -89,5 +111,6 @@ fun parseArgs(args: Array<String>): ExperimentConfig {
         randomSeed = command.randomSeed,
         timestamp = timestamp,
         outputDirectory = File("../logs/$timestamp"),
+        flashSwapDeviceSizeMB = flashSwapDeviceSizeMB,
     )
 }
