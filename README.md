@@ -114,6 +114,7 @@ flowchart TD
 - 锁屏未设置 PIN、密码或图案，或者运行前已手动解锁
 - Flash Swap 模式允许写入 `/data/per_boot/`
 - zSwap 模式的内核支持 zSwap 和 debugfs
+- zRAM Writeback 模式（`-t 4`）的内核提供 `/sys/block/zram0/{idle,writeback,backing_dev}` 节点，且 `/data` 放得下 `-f` 指定的后端文件
 
 建议先检查：
 
@@ -188,8 +189,22 @@ cd app_actions && .venv/bin/python3 -m unittest test_run_app.py
 | `1` | ⚡ Only zRAM | 保持设备启动后的现有 zRAM 配置 |
 | `2` | 💽 Flash Swap | 关闭 zRAM，创建并启用 `/data/per_boot/flash.swap` |
 | `3` | 🔁 zSwap | 关闭 zRAM，启用 Flash Swap、zSwap，并挂载 debugfs |
+| `4` | ♻️ zRAM + Writeback | 先读 `/sys/block/zram0/backing_dev`：**大小与 `-f` 相同就复用并校验 loop direct I/O**；不同则 reset 后摘掉旧 loop、删掉 `/data` 下的旧文件，再按 `-f` 建新文件 + loop，设置 4096-byte block size 和 direct I/O 后写入 `backing_dev`。测试期间每 `-w` 秒置 idle 并下刷 |
 
-Flash Swap 默认大小为 `4096 MB`。
+`-f/--flash_size` 是**后端存储大小**（MB，默认 `4096`）：`-t 2/3` 是 flash swap 文件，`-t 4` 是 zRAM 后端文件。
+`-w/--writeback_interval` 是 zRAM 下刷间隔（秒，默认 `60`），仅 `-t 4` 有效。运行目录名形如
+`..._heavy_zramWriteback1024_wb30s`。这轮是复用还是重建，记在 summary 的
+`config.zramBackingAction`（`reused` / `recreated`）里。
+
+> [!IMPORTANT]
+> `-t 4` 需要内核提供 `/sys/block/zram0/{idle,writeback,backing_dev}`。**判据是这些节点存在，不要只看 `/proc/config.gz`**：Android 上 zRAM 常是厂商模块（tokay 上 `comp_algorithm` 第一个是厂商私有的 `lz77eh`，而 GKI 的 config.gz 里写着 `CONFIG_ZRAM_WRITEBACK is not set`），两者配置并不一致。缺节点时程序会直接报错退出，避免产出名不副实的数据。
+
+> 自建 loop 不能仅执行 `losetup DEVICE FILE`：Android 原生 fs_mgr 还会执行
+> `LOOP_SET_BLOCK_SIZE(4096)` 和 `LOOP_SET_DIRECT_IO(1)`。本项目使用随程序打包的
+> arm64 helper 补齐这两步，并读回 `loop/dio=1`、`queue/logical_block_size=4096`。
+> Toybox losetup 不支持 `--direct-io`，因此不依赖该选项；需要重新构建程序才能包含 helper。
+> 未满足配置时直接报错，不会关闭 SELinux、修改策略或乱改文件标签。
+> 实机对照验证及复现方式见 [zRAM direct I/O 诊断](docs/zram-direct-io.md)。
 
 > [!WARNING]
 > 当前初始化代码不会全面清理上一次实验遗留的所有 Swap/zSwap 状态。严谨实验应在每次运行前检查 `/proc/swaps`、zSwap enabled 状态和实际 backing device。
@@ -357,6 +372,10 @@ logs/
 - BIG、MID、LITTLE、SoC、Virtual Skin 温度
 - zRAM 压缩、内存占用及 backing device 统计
 - zSwap pool limit hit 和 written-back pages
+
+采样单位统一口径（sample schema 2）：**容量 KB、bd_stat 原始计数 4 KB、所有带宽 MB/s**；
+KB/MB 按 1024 换算，带宽保留小数。CSV 表头显式标注单位，PSI 累计时间是 us。
+zswap 页数保留计数，同时补充 KB 容量列。详见[采样单位与旧数据兼容性](docs/sampling-units.md)。
 
 ### ❤️ `survival.csv`
 
