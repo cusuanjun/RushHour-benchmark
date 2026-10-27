@@ -1,5 +1,6 @@
 package com.junj.output.reporting
 
+import com.junj.cli.ArgType
 import com.junj.config.ExperimentConfig
 import com.junj.domain.launch.LaunchApplicationItem
 import com.junj.domain.metrics.SamplingItem
@@ -11,6 +12,7 @@ import com.junj.output.logging.LogType
 import com.junj.output.logging.Logger
 import java.io.File
 import java.util.Locale
+import kotlin.math.roundToLong
 import kotlin.math.ceil
 
 /**
@@ -59,10 +61,30 @@ data class LatencyStats(
     val validAvgMs: Long,
     val p50Ms: Long,
     val p95Ms: Long,
+    /** 有效启动（status=ok 且 TotalTime 可解析）的 p99。 */
+    val p99Ms: Long = 0L,
     val maxMs: Long,
     val coldAvgMs: Long,
     val warmAvgMs: Long,
     val hotAvgMs: Long,
+)
+
+/**
+ * `[launch]` 节里 `render.*` / `pss.*` 部分（逐次启动聚合）。
+ *
+ * 这是与启动延迟不同的维度：`render.*` 是 dumpsys gfxinfo 的**渲染**帧延迟分位（ms），
+ * `jank*` 是掉帧率（%），`pss.*` 是启动后该应用的常驻内存（KB）。集合为空时保持 null，
+ * 渲染成 `-`，避免输出看起来像结论的 0。
+ */
+data class LaunchQualityStats(
+    val jankyAvgPct: Double? = null,
+    val jankyMaxPct: Double? = null,
+    val renderP50Ms: Long? = null,
+    val renderP90Ms: Long? = null,
+    val renderP95Ms: Long? = null,
+    val renderP99Ms: Long? = null,
+    val pssAvgKb: Long? = null,
+    val pssMaxKb: Long? = null,
 )
 
 /** `[survival]` 节；比率由计数在渲染时算出。 */
@@ -87,6 +109,12 @@ data class SwapInStats(
     val p90LatNs: Long,
     val p99LatNs: Long,
     val maxLatNs: Long,
+    /** 本轮换入/换出**数据量（KB）**（pswpin/pswpout 差 × 页大小）；旧数据未采集时为 null。 */
+    val inKb: Long? = null,
+    val outKb: Long? = null,
+    /** 真正落到**闪存**的读写量（KB）；接口拿不到时为 null（渲染成 `-`）。 */
+    val flashReadsKb: Long? = null,
+    val flashWritesKb: Long? = null,
 )
 
 /** 本次运行启用了哪种内存压缩（由 config.type 决定）。 */
@@ -108,6 +136,11 @@ data class CompressionStats(
     val ratio: Double?,
     val uncompressedMiB: Long,
     val compressedMiB: Long,
+    /** 机制本身占用的 RAM（zram 池 / zswap 池，MiB）；无压缩时为 null。 */
+    val poolRamAvgMiB: Long? = null,
+    val poolRamMaxMiB: Long? = null,
+    /** 有效扩展的 RAM（MiB）= 未压缩量 - 压缩后量；无数据时为 null。 */
+    val ramSavedMiB: Long? = null,
 )
 
 /** 温度轨迹，单位 °C：起跑（首样本）/ 结束（末样本）/ 全程峰值。 */
@@ -133,6 +166,8 @@ data class ExperimentSummary(
     val run: RunStats,
     val launch: LaunchStats,
     val latency: LatencyStats,
+    /** `[launch]` 节里 render.* / pss.* 部分；老数据没有这些指标时为全 null。 */
+    val quality: LaunchQualityStats = LaunchQualityStats(),
     val survival: SurvivalStats,
     val memory: MemoryPressureStats,
     val swap: SwapInStats,
@@ -181,6 +216,61 @@ fun calculateSummary(
     val firstSample = samples.firstOrNull()
     val lastSample = samples.lastOrNull()
 
+    fun averageOfInt(selector: (LaunchApplicationItem) -> Int): Long? =
+        launches.map { selector(it).toLong() }.takeIf { it.isNotEmpty() }?.average()?.roundToLong()
+
+    val quality = LaunchQualityStats(
+        jankyAvgPct = launches.map { it.dumpsysGfxInfoJankyFrames }.takeIf { it.isNotEmpty() }?.average(),
+        jankyMaxPct = launches.maxOfOrNull { it.dumpsysGfxInfoJankyFrames },
+        renderP50Ms = averageOfInt { it.dumpsysGfxInfoP50RenderLat },
+        renderP90Ms = averageOfInt { it.dumpsysGfxInfoP90RenderLat },
+        renderP95Ms = averageOfInt { it.dumpsysGfxInfoP95RenderLat },
+        renderP99Ms = averageOfInt { it.dumpsysGfxInfoP99RenderLat },
+        pssAvgKb = averageOfInt { it.dumpsysMemInfoTotalPss },
+        pssMaxKb = launches.maxOfOrNull { it.dumpsysMemInfoTotalPss.toLong() },
+    )
+
+        // 交换层读写次数：/proc/vmstat 的累计页数做差。不用 vmstat 的 si/so，
+        // 它与 swap.totalSwapIns 对不上（单位可疑），无法用来推算次数。
+        // 0 是合法结果（真的没发生），只有拿不到读数时才返回 null（渲染成 `-`）。
+        fun counterDelta(selector: (com.junj.domain.metrics.SamplingItem) -> Long): Long? {
+            val first = samples.firstOrNull() ?: return null
+            val last = samples.lastOrNull() ?: return null
+            return (selector(last) - selector(first)).coerceAtLeast(0L)
+        }
+
+        // 旧数据的 pswpin/pswpout 是默认值 0，不能据此输出 0，必须确认采到过。
+        val pswpSampled = samples.any { it.vmstatPswpSampled }
+
+        // 内核计数单位是页，统一乘实际页大小换算成 KB。
+        val pageSizeKb = samples.firstOrNull { it.pageSizeKb > 0L }?.pageSizeKb ?: 4L
+
+        // 各方案计数器互斥，只凭采样即可判定方案，避免为此改动函数签名：
+        //   zram 写回 -> bd_stat（KB，/4 得页数）；zswap -> written_back_pages（页数）；
+        //   只 zram -> 无闪存 I/O；其余有交换 I/O 者 -> flash swap（交换层计数即闪存计数）。
+        val usesZramBacking = samples.any { it.zramBdWrites > 0L }
+        val usesZswap = samples.any { it.zswapStoredPages > 0L || it.zswapWrittenBackPages > 0L }
+        val usesZram = samples.any { it.zramOrigDataSize > 0L }
+        val flashReadsKb = when {
+            // zram 写回：bd_stat 在采样层已换算成 KB。
+            usesZramBacking -> counterDelta { it.zramBdReads }
+            // zswap：内核没有"从闪存读回"的接口，只能留未知。
+            usesZswap -> null
+            // 只 zram：完全没有闪存 I/O，就是 0。
+            usesZram -> 0L
+            // flash swap：交换层计数就是闪存计数；但要确认这一轮真的采到了 pswpin/pswpout。
+            pswpSampled -> counterDelta { it.vmstatPswpin }?.times(pageSizeKb)
+            else -> null
+        }
+        val flashWritesKb = when {
+            usesZramBacking -> counterDelta { it.zramBdWrites }
+            // zswap：只有被逐出池的页才写闪存，written_back_pages 一直是采集的，0 就是 0。
+            usesZswap -> counterDelta { it.zswapWrittenBackPages }?.times(pageSizeKb)
+            usesZram -> 0L
+            pswpSampled -> counterDelta { it.vmstatPswpout }?.times(pageSizeKb)
+            else -> null
+        }
+
     return ExperimentSummary(
         run = RunStats(
             durationMs = runtimeMs,
@@ -203,11 +293,13 @@ fun calculateSummary(
             validAvgMs = if (validTimes.isEmpty()) 0L else validTimes.sum() / validTimes.size,
             p50Ms = percentile(validTimes, 50),
             p95Ms = percentile(validTimes, 95),
+            p99Ms = percentile(validTimes, 99),
             maxMs = validTimes.lastOrNull() ?: 0L,
             coldAvgMs = stateAverage("COLD"),
             warmAvgMs = stateAverage("WARM"),
             hotAvgMs = stateAverage("HOT"),
         ),
+        quality = quality,
         survival = SurvivalStats(
             total = survivals.size,
             originalAlive = survivals.count { it.originalProcessAlive },
@@ -225,8 +317,28 @@ fun calculateSummary(
             p90LatNs = swapInField(swapInLatStats, ResultField.P90_SWAP_IN_LAT),
             p99LatNs = swapInField(swapInLatStats, ResultField.P99_SWAP_IN_LAT),
             maxLatNs = swapInField(swapInLatStats, ResultField.MAX_SWAP_IN_LAT),
+            inKb = if (pswpSampled) counterDelta { it.vmstatPswpin }?.times(pageSizeKb) else null,
+            outKb = if (pswpSampled) counterDelta { it.vmstatPswpout }?.times(pageSizeKb) else null,
+            flashReadsKb = flashReadsKb,
+            flashWritesKb = flashWritesKb,
         ),
-        compression = compressionStats(compressionEngine, samples),
+        compression = compressionStats(compressionEngine, samples).let { base ->
+            if (compressionEngine == CompressionEngine.NONE) {
+                base
+            } else {
+                // 机制自身占用：zram 用 mem_used_total，zswap 用 pool_total_size（均为 KB）。
+                val pool = samples.map {
+                    if (compressionEngine == CompressionEngine.ZSWAP) it.zswapPoolTotalSize else it.zramMemUsedTotal
+                }.filter { it > 0L }
+                base.copy(
+                    poolRamAvgMiB = if (pool.isEmpty()) null else pool.sum() / pool.size / 1024L,
+                    poolRamMaxMiB = pool.maxOrNull()?.div(1024L),
+                    // 有效扩展的 RAM：压缩前后之差，即这套机制真正"换"来多少内存。
+                    ramSavedMiB = if (base.ratio == null) null
+                    else (base.uncompressedMiB - base.compressedMiB).coerceAtLeast(0L),
+                )
+            }
+        },
         thermal = ThermalStats(
             bigAvgC = samples.sumOf { it.bigTemp } / sampleCount,
             midAvgC = samples.sumOf { it.midTemp } / sampleCount,
@@ -306,7 +418,16 @@ fun logRunHeader(
             appendLine("config.appSet=${config.appSetNumber}")
             appendLine("config.appOrder=${appNames.joinToString(",")}")
             appendLine("config.swapType=${config.swapType}")
-            appendLine("config.flashSwapMiB=${config.flashSwapDeviceSizeMB}")
+            // 结构统一：与 type 无关的项也照样输出，用 `-` 表示"本轮不适用"。
+            // 这样每个 summary.txt 的键集合完全一致，comparison.csv 里不会出现空白单元格。
+            val usesFlashSwap = config.swapType == ArgType.ONLY_FLASH_SWAP.code ||
+                config.swapType == ArgType.ZSWAP.code ||
+                config.swapType == ArgType.ZRAM_WRITEBACK.code
+            val usesWriteback = config.swapType == ArgType.ZRAM_WRITEBACK.code
+            val usesZswap = config.swapType == ArgType.ZSWAP.code
+            appendLine("config.flashSwapMiB=${if (usesFlashSwap) config.flashSwapDeviceSizeMB else "-"}")
+            appendLine("config.writebackIntervalSec=${if (usesWriteback) config.zramWritebackIntervalSec else "-"}")
+            appendLine("config.zswapMaxPoolPercent=${if (usesZswap) config.zswapMaxPoolPercent else "-"}")
             appendLine("config.testRounds=${config.testRoundCount}")
             appendLine("config.sampleIntervalMs=${config.sampleIntervalMs}")
             appendLine("config.launchIntervalMs=${config.launchIntervalMs}")
@@ -315,11 +436,6 @@ fun logRunHeader(
     )
 }
 
-/**
- * 把 summary 渲染成 summary.txt 的正文（纯函数，便于单测）。
- *
- * 不变量：非空行要么是 `[节名]`，要么是 `key=value`；key 不重复；值里不含逗号与换行。
- */
 fun renderSummary(summary: ExperimentSummary): String = buildString {
     fun put(key: String, value: Any?) = appendLine("$key=$value")
     fun section(name: String, body: () -> Unit) {
@@ -335,26 +451,40 @@ fun renderSummary(summary: ExperimentSummary): String = buildString {
 
     section("launch") {
         with(summary.launch) {
-            put("launch.total", total)
-            put("launch.valid", valid)
-            put("launch.failed", failed)
-            // 计数后面直接带本轮占比，分母就是上面那行 launch.total
+            // Ordered by launch lifecycle (cold -> warm -> hot -> unknown -> other), then the totals,
+            // so the state bucket can be read top-down. Shares use launch.total as the denominator.
             put("launch.cold", countWithShare(cold, total))
             put("launch.warm", countWithShare(warm, total))
             put("launch.hot", countWithShare(hot, total))
             put("launch.unknown", countWithShare(unknown, total))
+            put("launch.other", otherStates.ifEmpty { "-" })
+            put("launch.total", total)
+            // Diagnostics after the buckets: they explain how the buckets were produced.
+            put("launch.valid", valid)
+            put("launch.failed", failed)
             put("launch.unknownRaw", unknownRawStates.ifEmpty { "-" })
-            put("launch.otherStates", otherStates.ifEmpty { "-" })
         }
         with(summary.latency) {
             put("latency.avgMs", plannedAvgMs)
             put("latency.avgValidMs", validAvgMs)
             put("latency.p50Ms", p50Ms)
             put("latency.p95Ms", p95Ms)
+            put("latency.p99Ms", p99Ms)
             put("latency.maxMs", maxMs)
             put("latency.coldAvgMs", coldAvgMs)
             put("latency.warmAvgMs", warmAvgMs)
             put("latency.hotAvgMs", hotAvgMs)
+        }
+        with(summary.quality) {
+            // 渲染/掉帧/常驻内存：与启动延迟并列，但属于不同维度，单独前缀。
+            put("render.jankAvgPct", jankyAvgPct?.let { fixed2(it) } ?: "-")
+            put("render.jankMaxPct", jankyMaxPct?.let { fixed2(it) } ?: "-")
+            put("render.p50Ms", renderP50Ms ?: "-")
+            put("render.p90Ms", renderP90Ms ?: "-")
+            put("render.p95Ms", renderP95Ms ?: "-")
+            put("render.p99Ms", renderP99Ms ?: "-")
+            put("pss.avgKb", pssAvgKb ?: "-")
+            put("pss.maxKb", pssMaxKb ?: "-")
         }
     }
 
@@ -385,6 +515,13 @@ fun renderSummary(summary: ExperimentSummary): String = buildString {
             put("swap.p90InLatUs", p90LatNs / 1000)
             put("swap.p99InLatUs", p99LatNs / 1000)
             put("swap.maxInLatUs", maxLatNs / 1000)
+            // 交换层读写量（KB）：pswpin/pswpout 差 × 页大小，全方案统一。
+            put("swap.inKb", inKb ?: "-")
+            put("swap.outKb", outKb ?: "-")
+            // 真正落到闪存的读写量（KB）：flash swap 用交换层计数；zram writeback 用 bd_stat；
+            // zswap 只有 written_back_pages（"从闪存读回"没有单独接口，故为 -）。
+            put("swap.flashReadsKb", flashReadsKb ?: "-")
+            put("swap.flashWritesKb", flashWritesKb ?: "-")
         }
     }
 
@@ -395,6 +532,11 @@ fun renderSummary(summary: ExperimentSummary): String = buildString {
             put("compr.ratio", ratio?.let { fixed4(it) } ?: "-")
             put("compr.uncompressedMiB", uncompressedMiB)
             put("compr.compressedMiB", compressedMiB)
+            // 有效扩展的 RAM 紧跟压缩前后量：它就是这两者之差，放这里读起来才连贯。
+            put("compr.ramSavedMiB", ramSavedMiB ?: "-")
+            // 机制自身占用多少 RAM。
+            put("compr.poolRamAvgMiB", poolRamAvgMiB ?: "-")
+            put("compr.poolRamMaxMiB", poolRamMaxMiB ?: "-")
         }
     }
 
@@ -417,7 +559,7 @@ fun renderSummary(summary: ExperimentSummary): String = buildString {
 /**
  * 取「压缩内容最多」的那一拍计算压缩率：
  * - zRAM 看 `/sys/block/zram0/mm_stat` 的 orig/compr_data_size（KB）
- * - zswap 看 `stored_pages × 4KB` 与 `pool_total_size`（B）
+ * - zswap 看 `stored_pages × pageSizeKb` 与 `pool_total_size`（已转换成 KB）
  * 未启用压缩、没有样本、或池里从未有数据时，比率留空。
  */
 internal fun compressionStats(engine: CompressionEngine, samples: List<SamplingItem>): CompressionStats {
@@ -441,16 +583,16 @@ internal fun compressionStats(engine: CompressionEngine, samples: List<SamplingI
 private fun uncompressedKb(engine: CompressionEngine, sample: SamplingItem): Long = when (engine) {
     CompressionEngine.NONE -> 0L
     CompressionEngine.ZRAM -> sample.zramOrigDataSize
-    // stored_pages 是页数，1 页 = 4KB
-    CompressionEngine.ZSWAP -> sample.zswapStoredPages * 4L
+    // stored_pages 是页数，使用设备实际页大小换算。
+    CompressionEngine.ZSWAP -> sample.zswapStoredSizeKb
 }
 
 /** 压缩后的数据量，单位 KB。 */
 private fun compressedKb(engine: CompressionEngine, sample: SamplingItem): Long = when (engine) {
     CompressionEngine.NONE -> 0L
     CompressionEngine.ZRAM -> sample.zramComprDataSize
-    // pool_total_size 的单位是字节
-    CompressionEngine.ZSWAP -> sample.zswapPoolTotalSize / 1024
+    // 采集层已把 pool_total_size 从字节转换成 KB，不能再次除以 1024。
+    CompressionEngine.ZSWAP -> sample.zswapPoolTotalSize
 }
 
 private fun swapInField(stats: String, field: ResultField): Long =

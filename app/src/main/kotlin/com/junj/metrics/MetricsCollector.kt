@@ -19,16 +19,8 @@ internal const val SECTION_THERMAL = "THERMAL"
 internal const val SECTION_ZRAM_MM = "ZRAM_MM"
 internal const val SECTION_ZRAM_BD = "ZRAM_BD"
 internal const val SECTION_ZSWAP = "ZSWAP"
+internal const val SECTION_PAGE_SIZE = "PAGE_SIZE"
 
-/**
- * 一整轮采样只发一次 adb 调用的脚本。
- *
- * runAdbRootShellCommand 是把脚本 pipe 给设备上的 `su -c sh`，sh 会从 stdin 读完整段脚本，
- * 所以多行命令只付一次 bash/adb.exe 进程启动与一次 ADB 往返的代价（原来是 10 次）。
- * 每段数据前打印一行 [SAMPLE_MARKER] 标记，取回后在宿主端切分，再交给原有解析器。
- *
- * 注意：脚本里不能出现会读取 stdin 的命令（例如无参数的 `cat`），否则会吃掉后面的脚本行。
- */
 internal val SAMPLE_SCRIPT: String = listOf(
     "echo $SAMPLE_MARKER $SECTION_VMSTAT",
     "vmstat 1 2",
@@ -42,11 +34,16 @@ internal val SAMPLE_SCRIPT: String = listOf(
     "cat /sys/block/zram0/mm_stat",
     "echo $SAMPLE_MARKER $SECTION_ZRAM_BD",
     "cat /sys/block/zram0/bd_stat",
+    "echo $SAMPLE_MARKER $SECTION_PAGE_SIZE",
+    "getconf PAGESIZE",
     "echo $SAMPLE_MARKER $SECTION_ZSWAP",
     "echo \"stored_pages=\$(cat /sys/kernel/debug/zswap/stored_pages 2>/dev/null)\"",
     "echo \"pool_total_size=\$(cat /sys/kernel/debug/zswap/pool_total_size 2>/dev/null)\"",
     "echo \"pool_limit_hit=\$(cat /sys/kernel/debug/zswap/pool_limit_hit 2>/dev/null)\"",
     "echo \"written_back_pages=\$(cat /sys/kernel/debug/zswap/written_back_pages 2>/dev/null)\"",
+    // /proc/vmstat 的累计换入/换出页数：单位无歧义，做差即为本轮读写次数。
+    "echo \"pswpin=\$(awk '/^pswpin/{print \$2}' /proc/vmstat)\"",
+    "echo \"pswpout=\$(awk '/^pswpout/{print \$2}' /proc/vmstat)\"",
 ).joinToString("\n")
 
 class MetricsCollector(
@@ -81,6 +78,9 @@ internal fun parseSamplingItem(rawOutput: String, sampleStamp: Long): SamplingIt
     val sections = splitSampleSections(rawOutput)
 
     val vmstat = parseVmstat(sections[SECTION_VMSTAT].orEmpty())
+    // 累计换入/换出页数（/proc/vmstat pswpin/pswpout）。
+    val pswpin = Regex("pswpin=(\\d+)").find(rawOutput)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+    val pswpout = Regex("pswpout=(\\d+)").find(rawOutput)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
     val memInfo = sections[SECTION_MEMINFO].orEmpty()
     val pressureMemory = sections[SECTION_PRESSURE].orEmpty()
     val thermal = sections[SECTION_THERMAL].orEmpty()
@@ -107,10 +107,13 @@ internal fun parseSamplingItem(rawOutput: String, sampleStamp: Long): SamplingIt
         vmstatFree = vmstat?.vmstatFree ?: 0L,
         vmstatBuff = vmstat?.vmstatBuff ?: 0L,
         vmstatCache = vmstat?.vmstatCache ?: 0L,
-        vmstatSi = vmstat?.vmstatSi ?: 0L,
-        vmstatSo = vmstat?.vmstatSo ?: 0L,
-        vmstatBi = vmstat?.vmstatBi ?: 0L,
-        vmstatBo = vmstat?.vmstatBo ?: 0L,
+        vmstatSi = (vmstat?.vmstatSi ?: 0L) / 1024.0,
+        vmstatSo = (vmstat?.vmstatSo ?: 0L) / 1024.0,
+        vmstatBi = (vmstat?.vmstatBi ?: 0L) / 1024.0,
+        vmstatBo = (vmstat?.vmstatBo ?: 0L) / 1024.0,
+        vmstatPswpin = pswpin,
+        vmstatPswpout = pswpout,
+        vmstatPswpSampled = Regex("pswpin=\\d+").containsMatchIn(rawOutput),
         vmstatIn = vmstat?.vmstatIn ?: 0L,
         vmstatCs = vmstat?.vmstatCs ?: 0L,
         vmstatUs = vmstat?.vmstatUs ?: 0,
@@ -128,14 +131,17 @@ internal fun parseSamplingItem(rawOutput: String, sampleStamp: Long): SamplingIt
         zramComprDataSize = (zramMm?.comprDataSize?.div(1024)) ?: 0,
         zramMemUsedTotal = (zramMm?.memUsedTotal?.div(1024)) ?: 0,
         zramMemUsedMax = (zramMm?.memUsedMax?.div(1024)) ?: 0,
-        zramBdCount = (zramBd?.bdCount?.div(1024)) ?: 0,
-        zramBdReads = (zramBd?.bdReads?.div(1024)) ?: 0,
-        zramBdWrites = (zramBd?.bdWrites?.div(1024)) ?: 0,
+        // bd_stat 保留原始 4 KB 计数；既不乘 4，也不除以 1024。
+        zramBdCount = (zramBd?.bdCount?.times(4)) ?: 0L,
+        zramBdReads = (zramBd?.bdReads?.times(4)) ?: 0L,
+        zramBdWrites = (zramBd?.bdWrites?.times(4)) ?: 0L,
 
         zswapStoredPages = labeledLong(zswap, "stored_pages"),
-        zswapPoolTotalSize = labeledLong(zswap, "pool_total_size"),
+        zswapPoolTotalSize = labeledLong(zswap, "pool_total_size") / 1024L,
         zswapPoolLimitHit = labeledLong(zswap, "pool_limit_hit"),
         zswapWrittenBackPages = labeledLong(zswap, "written_back_pages"),
+        pageSizeKb = sections[SECTION_PAGE_SIZE]?.trim()?.toLongOrNull()
+            ?.takeIf { it >= 1024L && it % 1024L == 0L }?.div(1024L) ?: 4L,
     )
 }
 

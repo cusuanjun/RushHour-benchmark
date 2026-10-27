@@ -127,6 +127,7 @@ fun saveSampleResultsToCsv(
     outputFile: File,
     sampleIntervalMs: Long,
 ) {
+    require(sampleIntervalMs > 0) { "sampleIntervalMs must be positive" }
     outputFile.parentFile?.mkdirs()
 
     outputFile.bufferedWriter(Charsets.UTF_8).use { writer ->
@@ -139,8 +140,8 @@ fun saveSampleResultsToCsv(
                 "swapTotal(KB)",
                 "swapFree(KB)",
                 "swapCached(KB)",
-                "psiSome(ms)",
-                "psiFull(ms)",
+                "psiSome(us)",
+                "psiFull(us)",
                 "vmstatR/runnableProcesses",
                 "vmstatB/blockedProcesses",
                 "vmstatSwpd/swapUsed(KB)",
@@ -149,8 +150,8 @@ fun saveSampleResultsToCsv(
                 "vmstatCache/cacheMemory(KB)",
                 "vmstatSi/swapInBw(KB/s)",
                 "vmstatSo/swapOutBw(KB/s)",
-                "vmstatBi/blockInput(KB/s)",
-                "vmstatBo/blockOutput(KB/s)",
+                "vmstatBi/blockInput(blocks/s)",
+                "vmstatBo/blockOutput(blocks/s)",
                 "vmstatIn/Interrupts(time/s)",
                 "vmstatCs/contextSwitches(time/s)",
                 "vmstatUs/userCpuTime(%)",
@@ -166,20 +167,24 @@ fun saveSampleResultsToCsv(
                 "zramComprDataSize(KB)",
                 "zramMemUsedTotal(KB)",
                 "zramMemUsedMax(KB)",
-                "zramBdCount",
-                "zramBdReads",
-                "zramBdWrites",
-                "zramBdReadBw(KB/s)",
-                "zramBdWriteBw(KB/s)",
+                "zramBdCount(KB)",
+                "zramBdReads(KB)",
+                "zramBdWrites(KB)",
+                "zramBdReadBw(MB/s)",
+                "zramBdWriteBw(MB/s)",
                 "zswapStoredPages",
-                "zswapPoolTotalSize(B)",
+                "zswapStoredSize(KB)",
+                "zswapPoolTotalSize(KB)",
                 "zswapPoolLimitHit",
                 "zswapWrittenBackPages",
-                "zswapWriteBw(KB/s)",
+                "zswapWrittenBackSize(KB)",
+                "zswapWriteBw(MB/s)",
             ).joinToString(",")
         )
 
         results.forEachIndexed { index, item ->
+            val previous = results.getOrNull(index - 1)
+            val elapsedMs = previous?.let { item.sampleStamp - it.sampleStamp } ?: 0L
             writer.appendLine(
                 listOf(
                     item.sampleStamp,
@@ -219,19 +224,30 @@ fun saveSampleResultsToCsv(
                     item.zramBdCount,
                     item.zramBdReads,
                     item.zramBdWrites,
-                    if (index == 0) item.zramBdReads * 4 * 1024 / sampleIntervalMs else (item.zramBdReads - results[index - 1].zramBdReads) * 4 * 1024 / sampleIntervalMs,
-                    if (index == 0) item.zramBdWrites * 4 * 1024 / sampleIntervalMs else (item.zramBdWrites - results[index - 1].zramBdWrites) * 4 * 1024 / sampleIntervalMs,
+                    counterRateMbPerSecond(item.zramBdReads, previous?.zramBdReads, elapsedMs, 1L),
+                    counterRateMbPerSecond(item.zramBdWrites, previous?.zramBdWrites, elapsedMs, 1L),
                     item.zswapStoredPages,
+                    item.zswapStoredSizeKb,
                     item.zswapPoolTotalSize,
                     item.zswapPoolLimitHit,
                     item.zswapWrittenBackPages,
-                    // 池满被拒绝的页不会写入 swap 设备，不能算进写回吞吐；这里只把 zswap 回写到 swap 设备的页换算成 KB/s。
-                    if (index == 0) item.zswapWrittenBackPages * 4L * 1000L / sampleIntervalMs
-                    else (item.zswapWrittenBackPages - results[index - 1].zswapWrittenBackPages) * 4L * 1000L / sampleIntervalMs
+                    item.zswapWrittenBackSizeKb,
+                    // 池满拒绝计数不能算进写回吞吐。首样本无运行前基线，速率记 0。
+                    if (previous != null && item.pageSizeKb == previous.pageSizeKb) {
+                        counterRateMbPerSecond(item.zswapWrittenBackPages, previous.zswapWrittenBackPages, elapsedMs, item.pageSizeKb)
+                    } else 0.0
                 ).joinToString(",") { value->
                     escapeCsv(value.toString())
                 }
             )
         }
     }
+}
+
+/** 累计计数 -> MB/s；使用实际采样时间，计数 reset/时间倒退时不产生负带宽。
+ * MB 按 1024 KB 换算；浮点计算保留低于 1 MB/s 的流量，避免整数截断。
+ */
+internal fun counterRateMbPerSecond(current: Long, previous: Long?, elapsedMs: Long, kbPerUnit: Long): Double {
+    if (previous == null || elapsedMs <= 0L || current < previous) return 0.0
+    return (current - previous).toDouble() * kbPerUnit * 1000.0 / elapsedMs / 1024.0
 }

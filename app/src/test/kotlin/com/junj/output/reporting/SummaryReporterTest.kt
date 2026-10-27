@@ -78,7 +78,20 @@ class SummaryReporterTest {
         assertTrue(text.contains("launch.hot=23(32.39%)"), text)
         assertTrue(text.contains("launch.unknown=1(1.41%)"), text)
         assertTrue(text.contains("launch.unknownRaw=UNKNOWN (-1)|UNKNOWN (0)"), text)
-        assertTrue(text.contains("launch.otherStates=-"), text)
+        assertTrue(text.contains("launch.other=-"), text)
+        // Order follows the launch lifecycle (cold -> warm -> hot -> unknown -> other -> total);
+        // a reader should be able to scan the bucket top-down.
+        val launchOrder = listOf(
+            "launch.cold=",
+            "launch.warm=",
+            "launch.hot=",
+            "launch.unknown=",
+            "launch.other=",
+            "launch.total=",
+        )
+        val positions = launchOrder.map { text.indexOf(it) }
+        assertTrue(positions.all { it >= 0 }, "missing launch keys $positions in\n$text")
+        assertTrue(positions == positions.sorted(), "launch keys out of order $positions in\n$text")
     }
 
     @Test
@@ -139,17 +152,29 @@ class SummaryReporterTest {
     }
 
     @Test
-    fun `zswap compression ratio converts pages and bytes`() {
+    fun `zswap compression ratio converts pages and accepts pool size in KB`() {
         val samples = listOf(
             sampling(
                 zswapStoredPages = 655_360,                 // 655360 页 x 4KB = 2560MiB
-                zswapPoolTotalSize = 1_342_177_280L,        // 1280MiB
+                zswapPoolTotalSize = 1_310_720L,        // 1280MiB
             ),
         )
 
         val text = renderSummary(sample(engine = CompressionEngine.ZSWAP, samples = samples))
 
         assertTrue(text.contains("compr.engine=zswap"), text)
+        assertTrue(text.contains("compr.ratio=0.5000"), text)
+        assertTrue(text.contains("compr.uncompressedMiB=2560"), text)
+        assertTrue(text.contains("compr.compressedMiB=1280"), text)
+    }
+
+    @Test
+    fun `zswap compression honors actual kernel page size`() {
+        val samples = listOf(sampling(
+            zswapStoredPages = 163_840,
+            zswapPoolTotalSize = 1_310_720,
+        ).copy(pageSizeKb = 16))
+        val text = renderSummary(sample(engine = CompressionEngine.ZSWAP, samples = samples))
         assertTrue(text.contains("compr.ratio=0.5000"), text)
         assertTrue(text.contains("compr.uncompressedMiB=2560"), text)
         assertTrue(text.contains("compr.compressedMiB=1280"), text)
@@ -281,10 +306,10 @@ class SummaryReporterTest {
         vmstatFree = 0,
         vmstatBuff = 0,
         vmstatCache = 0,
-        vmstatSi = 0,
-        vmstatSo = 0,
-        vmstatBi = 0,
-        vmstatBo = 0,
+        vmstatSi = 0.0,
+        vmstatSo = 0.0,
+        vmstatBi = 0.0,
+        vmstatBo = 0.0,
         vmstatIn = 0,
         vmstatCs = 0,
         vmstatUs = 0,

@@ -20,10 +20,16 @@ data class SamplingItem(
     val vmstatFree: Long,
     val vmstatBuff: Long,
     val vmstatCache: Long,
-    val vmstatSi: Long,
-    val vmstatSo: Long,
-    val vmstatBi: Long,
-    val vmstatBo: Long,
+    // 已从 vmstat 的 KB/s 换算成 MB/s。
+    val vmstatSi: Double,
+    val vmstatSo: Double,
+    val vmstatBi: Double,
+    val vmstatBo: Double,
+    // /proc/vmstat 累计换入/换出页数（pswpin/pswpout），做差得到本轮读写次数。
+    val vmstatPswpin: Long = 0L,
+    val vmstatPswpout: Long = 0L,
+    /** 该拍是否真的采到了 pswpin/pswpout（老数据的默认 0 不能当成"真的 0"）。 */
+    val vmstatPswpSampled: Boolean = false,
     val vmstatIn: Long,
     val vmstatCs: Long,
     val vmstatUs: Int,
@@ -42,12 +48,19 @@ data class SamplingItem(
     val zramMemUsedTotal: Long,
     val zramMemUsedMax: Long,
 
+    // zram bd_stat 原始 4 KB 计数：Count 当前占用，Reads/Writes 累计流量。
     val zramBdCount: Long,
     val zramBdReads: Long,
     val zramBdWrites: Long,
 
     val zswapStoredPages: Long,
+    // KB，采集时从 pool_total_size 的字节数转换。
     val zswapPoolTotalSize: Long,
     val zswapPoolLimitHit: Long,
     val zswapWrittenBackPages: Long,
-)
+    // zswap 的页大小依赖内核；与 bd_stat 固定的 4 KB 单位不同。
+    val pageSizeKb: Long = 4L,
+) {
+    val zswapStoredSizeKb: Long get() = zswapStoredPages * pageSizeKb
+    val zswapWrittenBackSizeKb: Long get() = zswapWrittenBackPages * pageSizeKb
+}

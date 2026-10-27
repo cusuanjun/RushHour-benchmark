@@ -4,9 +4,11 @@ import com.junj.cli.ArgType
 import com.junj.cli.parseArgs
 import com.junj.device.adb.ProcessAdbExecutor
 import com.junj.device.lifecycle.rebootDevice
+import com.junj.device.lifecycle.restBeforeTest
 import com.junj.device.logcat.startLogcatProcess
 import com.junj.device.process.destroyProcessTree
 import com.junj.device.swap.SwapController
+import com.junj.device.swap.ZramWritebackJob
 import com.junj.domain.ExperimentResults
 import com.junj.domain.TestClock
 import com.junj.domain.app.appNameSet
@@ -42,6 +44,17 @@ fun main(args: Array<String>) = runBlocking {
         config = config,
     ).initSwapByType()
 
+    restBeforeTest()
+
+    val writebackJob = if (config.swapType == ArgType.ZRAM_WRITEBACK.code) {
+        ZramWritebackJob(
+            adb = ProcessAdbExecutor,
+            intervalSec = config.zramWritebackIntervalSec,
+        ).start(this)
+    } else {
+        null
+    }
+
     val clock = TestClock()
     val runner = ExperimentRunner(
         adb = ProcessAdbExecutor,
@@ -60,7 +73,6 @@ fun main(args: Array<String>) = runBlocking {
     ).start(this)
     val logcatProcess = startLogcatProcess(output.logcat)
 
-
     try {
         ProcessAdbExecutor.rootShell("""am start -W -n hello.litiaotiao.app/hello.litiaotiao.app.MainActivity""")
         for (round in 1..config.testRoundCount) {
@@ -69,6 +81,7 @@ fun main(args: Array<String>) = runBlocking {
         }
     } finally {
         val elapsedMs = clock.elapsedMs()
+        writebackJob?.cancelAndJoin()
         samplingJob.cancelAndJoin()
         destroyProcessTree(logcatProcess)
 
@@ -80,9 +93,8 @@ fun main(args: Array<String>) = runBlocking {
             survivals = results.survivals,
             appCount = apps.size,
             testRoundCount = config.testRoundCount,
-            // 只有 zRAM / zSWAP 才存在压缩率；另外两种类型固定输出 engine=none
             compressionEngine = when (config.swapType) {
-                ArgType.ONLY_ZRAM.code -> CompressionEngine.ZRAM
+                ArgType.ONLY_ZRAM.code, ArgType.ZRAM_WRITEBACK.code -> CompressionEngine.ZRAM
                 ArgType.ZSWAP.code -> CompressionEngine.ZSWAP
                 else -> CompressionEngine.NONE
             },

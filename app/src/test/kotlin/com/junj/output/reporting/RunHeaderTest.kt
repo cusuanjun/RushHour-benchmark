@@ -39,8 +39,13 @@ class RunHeaderTest {
             assertTrue(text.contains("config.appSet=0"), text)
             assertTrue(text.contains("config.appOrder=bilibili,wps"), text)
             assertTrue(text.contains("config.swapType=1"), text)
-            assertTrue(text.contains("config.flashSwapMiB=4096"), text)
             assertTrue(text.contains("config.testRounds=10"), text)
+            // sampleSchema 已被移除：CSV 的格式由列名里的单位后缀自我描述。
+            assertTrue(!text.contains("config.sampleSchema"), text)
+            // 结构统一：与 type 无关的项也必须存在，只是值为 "-"（这样 comparison.csv 不会出现空白）。
+            assertTrue(text.contains("config.flashSwapMiB=-"), text)
+            assertTrue(text.contains("config.writebackIntervalSec=-"), text)
+            assertTrue(text.contains("config.zswapMaxPoolPercent=-"), text)
             assertTrue(text.contains("config.sampleIntervalMs=2000"), text)
             assertTrue(text.contains("config.launchIntervalMs=20000"), text)
             // 头部在这里结束：结果分节由 reportSummary 稍后追加
