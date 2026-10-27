@@ -49,29 +49,23 @@ fun runAdbShellCommand(command: String) : CommandResult {
     return CommandResult(exitCode, output)
 }
 
-//fun runAdbRootShellCommand(command: String) : CommandResult {
-//    val hostScript = "exec adb.exe shell su -c \"\$1\""
-//    val process = ProcessBuilder(
-//        "/bin/bash",
-//        "-c",
-//        hostScript,
-//        "runAdbRootShellCommand", // Bash 的 $0 占位符
-//        command,                  // Bash 的 $1，即完整 Android 命令
-//    )
-//        .redirectErrorStream(true)
-//        .start()
-//
-//    val output = process.inputStream
-//        .bufferedReader(Charsets.UTF_8)
-//        .use { it.readText() }
-//    val exitCode = process.waitFor()
-//
-//    return CommandResult(exitCode, output)
-//}
-
+/**
+ * 以 root 在设备上执行脚本（脚本经 stdin 交给 `su -c sh`）。
+ *
+ * 注意不要写成裸 `su`：Magisk 的 su 常常**不在 shell 的 PATH 里**
+ * （典型位置是 `/debug_ramdisk/su`，它在 magic mount 生效前就已存在，开机早期也能用），
+ * 裸 `su` 会得到 `su: inaccessible or not found`，于是所有 root 操作静默失败。
+ * 这里先在设备上挑一个存在的 su，再 `exec` 它——此时 stdin 还没被读过，脚本仍会完整交给 `sh`。
+ */
 fun runAdbRootShellCommand(command: String): CommandResult {
     val hostScript =
-        "printf '%s\\n' \"\$ADB_ROOT_COMMAND\" | adb.exe shell su -c sh"
+        "printf '%s\\n' \"\$ADB_ROOT_COMMAND\" | " +
+            "adb.exe shell 'SU=/debug_ramdisk/su; " +
+            "[ -x \$SU ] || SU=/system/bin/su; " +
+            "[ -x \$SU ] || SU=/system/xbin/su; " +
+            "[ -x \$SU ] || SU=/sbin/su; " +
+            "[ -x \$SU ] || SU=su; " +
+            "exec \$SU -c sh'"
 
     val processBuilder = ProcessBuilder(
         "/bin/bash",
@@ -80,7 +74,6 @@ fun runAdbRootShellCommand(command: String): CommandResult {
     )
         .redirectErrorStream(true)
 
-    // command 作为环境变量数据传入，不会被本机 Bash 当作命令解析。
     processBuilder.environment()["ADB_ROOT_COMMAND"] = command
 
     val process = processBuilder.start()
@@ -91,6 +84,12 @@ fun runAdbRootShellCommand(command: String): CommandResult {
 
     val exitCode = process.waitFor()
 
+    // Centralised failure reporting for every root shell call: name the exact command that did not
+    // complete, so callers no longer need a per-call exit-code check.
+    if (exitCode != 0) {
+        println("[adb] root command failed (exit=$exitCode): $command")
+        output.trim().takeIf { it.isNotEmpty() }?.let { println(it) }
+    }
+
     return CommandResult(exitCode, output)
 }
-

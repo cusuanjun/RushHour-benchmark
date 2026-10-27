@@ -2,16 +2,15 @@ package com.junj.domain.app
 
 val appNameSet = arrayOf(
     arrayOf(
-        "wechat", "weibo", "zhihu", "qqmusic", "dianping",
-        "xiecheng", "jd", "meituan", "netdisk", "kuake"
+        "douyin", "bilibili", "zhihu", "wps", "doubao", "xiecheng",
     ),
     arrayOf(
         "wechat", "weibo", "zhihu", "qqmusic", "dianping",
-        "xiecheng", "meituan", "netdisk", "kuake", "wps", "doubao", "gdmap",
+        "xiecheng", "meituan", "netdisk", "wps", "doubao",
     ),
     arrayOf(
-        "douyin", "kuaishou", "bilibili", "gdmap", "dianping", "jd", "meituan", "xiecheng",
-        "wps", "doubao", "qqmusic", "netdisk", "weibo", "wechat", "zhihu", "kuake",
+        "douyin", "kuaishou", "bilibili", "gdmap", "jd", "xiecheng",
+        "wps", "doubao", "netdisk", "weibo", "wechat", "kuake",
     ),
 )
 
