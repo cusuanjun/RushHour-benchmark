@@ -2,6 +2,39 @@ package com.junj.device.swap
 
 import com.junj.device.adb.AdbExecutor
 
+/** 每轮由 Main 重启后调用；swap_area 是预留的独立分区，映射从扇区 0 开始。 */
+internal fun mapFlashDevice(adb: AdbExecutor, sizeMB: Int): String {
+    val partition = "/dev/block/by-name/swap_area"
+    val capacity = adb.rootShell("blockdev --getsize64 $partition").output.trim().toLongOrNull()
+    check(sizeMB > 0 && capacity != null && sizeMB.toLong() * 1024 * 1024 <= capacity) {
+        "Invalid swap_area capacity or requested size: $capacity bytes, $sizeMB MiB"
+    }
+    checkedZramCommand(adb, "dmctl create flash_swap linear 0 ${sizeMB.toLong() * 2048} $partition 0")
+    val device = adb.rootShell("dmctl getpath flash_swap").output.trim()
+    check(Regex("/dev/block/dm-[0-9]+").matches(device)) { "Invalid flash_swap device: $device" }
+    println("$partition -> $device, offset=0, size=$sizeMB MiB")
+    return device
+}
+
+/** 新的分区后端入口；保留下面原有文件/loop 实现，避免无关的大段重写。 */
+fun enableMappedZramWriteback(adb: AdbExecutor, backingSizeMB: Int, intervalSec: Int): ZramBackingDeviceResult {
+    require(intervalSec > 0)
+    requireZramWritebackSupport(adb)
+    val disksize = adb.rootShell("cat $ZRAM_SYSFS/disksize").output.trim()
+    check(disksize.toLongOrNull()?.let { it > 0 } == true) { "Invalid zRAM disksize; reboot before retrying" }
+    val device = mapFlashDevice(adb, backingSizeMB)
+    listOf(
+        "swapoff $ZRAM_DEVICE",
+        "echo 1 > $ZRAM_SYSFS/reset",
+        "echo $COMPRESSION_ALGORITHM > $ZRAM_SYSFS/comp_algorithm",
+        "echo $device > $ZRAM_SYSFS/backing_dev",
+        "echo $disksize > $ZRAM_SYSFS/disksize",
+        "mkswap $ZRAM_DEVICE",
+        "swapon $ZRAM_DEVICE",
+    ).forEach { checkedZramCommand(adb, it) }
+    return ZramBackingDeviceResult("recreated", device, "", backingSizeMB.toLong())
+}
+
 /** zram0 的 sysfs 目录。 */
 const val ZRAM_SYSFS = "/sys/block/zram0"
 

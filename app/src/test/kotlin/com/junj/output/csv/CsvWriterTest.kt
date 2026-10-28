@@ -8,6 +8,16 @@ import kotlin.test.assertTrue
 
 class CsvWriterTest {
     @Test
+    fun `flash KB reports interval volumes and ignores missing samples and resets`() {
+        val initial = sample(0).copy(flashDeviceReadKb = 100.0, flashDeviceWriteKb = 200.0)
+        val next = initial.copy(sampleStamp = 2000, flashDeviceReadKb = 107.5, flashDeviceWriteKb = 211.0)
+        val rows = csvRows(listOf(initial, next, sample(4000), next.copy(sampleStamp = 6000),
+            initial.copy(sampleStamp = 8000)))
+        assertEquals(listOf("0.0", "7.5", "0.0", "0.0", "0.0"), rows.map { it["flashDeviceRead(KB/interval)"] })
+        assertEquals(listOf("0.0", "11.0", "0.0", "0.0", "0.0"), rows.map { it["flashDeviceWrite(KB/interval)"] })
+    }
+
+    @Test
     fun `sample csv header and every data row have the same column count`() {
         val file = File.createTempFile("sample", ".csv")
         try {
@@ -45,9 +55,10 @@ class CsvWriterTest {
             )
 
             val rows = file.readLines().filter { it.isNotBlank() }.drop(1)
-            assertEquals(0.0, rows[0].substringAfterLast(",").toDouble())
+            val column = file.readLines().first().split(",").indexOf("zswapWriteBw(MB/s)")
+            assertEquals(0.0, rows[0].split(",")[column].toDouble())
             // 4 页 × 4 KB / 2s / 1024 = 0.0078125 MB/s；不能整数截断成 0。
-            assertEquals(0.0078125, rows[1].substringAfterLast(",").toDouble())
+            assertEquals(0.0078125, rows[1].split(",")[column].toDouble())
         } finally {
             file.delete()
         }

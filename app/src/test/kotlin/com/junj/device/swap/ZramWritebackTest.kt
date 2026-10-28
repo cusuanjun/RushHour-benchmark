@@ -8,6 +8,31 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class ZramWritebackTest {
+    @Test
+    fun `mapped writeback uses partition offset zero and sets backing before disksize`() {
+        val adb = supportingAdb(mapOf(
+            "cat $ZRAM_SYSFS/disksize" to listOf("6054678528"),
+            "blockdev --getsize64 /dev/block/by-name/swap_area" to listOf("17179869184"),
+            "dmctl getpath flash_swap" to listOf("/dev/block/dm-13"),
+        ))
+        val result = enableMappedZramWriteback(adb, 4096, 30)
+        assertEquals("/dev/block/dm-13", result.backingDevice)
+        assertTrue(adb.issued.contains("dmctl create flash_swap linear 0 8388608 /dev/block/by-name/swap_area 0"))
+        val reset = adb.issued.indexOf("echo 1 > $ZRAM_SYSFS/reset")
+        val backing = adb.issued.indexOf("echo /dev/block/dm-13 > $ZRAM_SYSFS/backing_dev")
+        val size = adb.issued.indexOf("echo 6054678528 > $ZRAM_SYSFS/disksize")
+        assertTrue(reset >= 0 && reset < backing && backing < size)
+        assertEquals("swapon $ZRAM_DEVICE", adb.issued.last())
+        assertTrue(adb.issued.none { it.startsWith("dd ") || it.startsWith("losetup ") })
+    }
+
+    @Test
+    fun `mapping refuses an oversized request before creating the device`() {
+        val adb = FakeAdb(mapOf("blockdev --getsize64 /dev/block/by-name/swap_area" to listOf("1073741824")))
+        assertFailsWith<IllegalStateException> { mapFlashDevice(adb, 4096) }
+        assertTrue(adb.issued.none { it.startsWith("dmctl create") })
+    }
+
     // ------------------------------------------------------------ 命令序列（纯函数）
 
     @Test

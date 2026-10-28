@@ -1,5 +1,7 @@
 package com.junj.output.reporting
 
+import com.junj.domain.metrics.flashKbDelta
+
 import com.junj.cli.ArgType
 import com.junj.config.ExperimentConfig
 import com.junj.domain.launch.LaunchApplicationItem
@@ -115,6 +117,8 @@ data class SwapInStats(
     /** 真正落到**闪存**的读写量（KB）；接口拿不到时为 null（渲染成 `-`）。 */
     val flashReadsKb: Long? = null,
     val flashWritesKb: Long? = null,
+    val flashDeviceReadKb: Double = 0.0,
+    val flashDeviceWriteKb: Double = 0.0,
 )
 
 /** 本次运行启用了哪种内存压缩（由 config.type 决定）。 */
@@ -321,6 +325,8 @@ fun calculateSummary(
             outKb = if (pswpSampled) counterDelta { it.vmstatPswpout }?.times(pageSizeKb) else null,
             flashReadsKb = flashReadsKb,
             flashWritesKb = flashWritesKb,
+            flashDeviceReadKb = samples.zipWithNext { a, b -> flashKbDelta(b.flashDeviceReadKb, a.flashDeviceReadKb) }.sum(),
+            flashDeviceWriteKb = samples.zipWithNext { a, b -> flashKbDelta(b.flashDeviceWriteKb, a.flashDeviceWriteKb) }.sum(),
         ),
         compression = compressionStats(compressionEngine, samples).let { base ->
             if (compressionEngine == CompressionEngine.NONE) {
@@ -522,6 +528,8 @@ fun renderSummary(summary: ExperimentSummary): String = buildString {
             // zswap 只有 written_back_pages（"从闪存读回"没有单独接口，故为 -）。
             put("swap.flashReadsKb", flashReadsKb ?: "-")
             put("swap.flashWritesKb", flashWritesKb ?: "-")
+            put("swap.flashDeviceReadKb", flashDeviceReadKb)
+            put("swap.flashDeviceWriteKb", flashDeviceWriteKb)
         }
     }
 

@@ -34,7 +34,7 @@ class TouchSimulator(
             return
         }
 
-        val python = actionsDirectory.resolve(".venv/bin/python3")
+        val python = actionsDirectory.parent.resolve(".venv/bin/python3")
         val runner = actionsDirectory.resolve("run_app.py")
         check(Files.isExecutable(python)) {
             "Python virtual environment is unavailable: $python"
@@ -66,7 +66,7 @@ class TouchSimulator(
     }
 
     internal fun buildAppActionCommand(name: String): List<String> = listOf(
-        actionsDirectory.resolve(".venv/bin/python3").toString(),
+        actionsDirectory.parent.resolve(".venv/bin/python3").toString(),
         "run_app.py",
         "--time",
         ACTION_TIME_SECONDS,
@@ -106,8 +106,8 @@ class TouchSimulator(
     companion object {
         private fun locateActionsDirectory(): Path {
             val candidates = listOf(
-                Paths.get("app_actions"),
-                Paths.get("../app_actions"),
+                Paths.get("app_actions/CNapp"),
+                Paths.get("../app_actions/CNapp"),
             )
             return candidates
                 .map { it.toAbsolutePath().normalize() }

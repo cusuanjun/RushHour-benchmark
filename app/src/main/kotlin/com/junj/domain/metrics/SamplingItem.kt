@@ -60,7 +60,13 @@ data class SamplingItem(
     val zswapWrittenBackPages: Long,
     // zswap 的页大小依赖内核；与 bd_stat 固定的 4 KB 单位不同。
     val pageSizeKb: Long = 4L,
+    // 映射设备的累计读写量，单位 KB（1024 字节）；缺样为 null。
+    val flashDeviceReadKb: Double? = null,
+    val flashDeviceWriteKb: Double? = null,
 ) {
     val zswapStoredSizeKb: Long get() = zswapStoredPages * pageSizeKb
     val zswapWrittenBackSizeKb: Long get() = zswapWrittenBackPages * pageSizeKb
 }
+
+internal fun flashKbDelta(current: Double?, previous: Double?): Double =
+    if (current == null || previous == null) 0.0 else (current - previous).coerceAtLeast(0.0)

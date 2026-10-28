@@ -34,7 +34,7 @@ class TouchSimulatorTest {
 
     @Test
     fun `app action command uses venv python and unified runner options`() {
-        val actionsDirectory = Paths.get("/tmp/app_actions")
+        val actionsDirectory = Paths.get("/tmp/app_actions/CNapp")
         val simulator = TouchSimulator(RecordingAdb(), actionsDirectory)
 
         assertEquals(

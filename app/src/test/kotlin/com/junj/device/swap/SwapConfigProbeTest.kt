@@ -23,19 +23,19 @@ class SwapConfigProbeTest {
     fun `no swap and only zram do not read backends they never create`() {
         for (type in listOf(ArgType.NO_SWAP.code, ArgType.ONLY_ZRAM.code)) {
             val labels = labels(type)
-            assertTrue(labels.none { it.contains("flash swap file") }, labels.toString())
+            assertTrue(labels.none { it.contains("flash swap device") }, labels.toString())
             assertTrue(labels.none { it.contains("zswap") }, labels.toString())
             assertTrue(labels.none { it.contains("bd_stat") }, labels.toString())
         }
     }
 
     @Test
-    fun `flash swap variants read the flash file and zswap adds its own nodes`() {
-        assertTrue(labels(ArgType.ONLY_FLASH_SWAP.code).any { it.contains("flash swap file") })
+    fun `flash swap variants read the flash device and zswap adds its own nodes`() {
+        assertTrue(labels(ArgType.ONLY_FLASH_SWAP.code).any { it.contains("flash swap device") })
         assertTrue(labels(ArgType.ONLY_FLASH_SWAP.code).none { it.contains("zswap") })
 
         val zswap = labels(ArgType.ZSWAP.code)
-        assertTrue(zswap.any { it.contains("flash swap file") }, zswap.toString())
+        assertTrue(zswap.any { it.contains("flash swap device") }, zswap.toString())
         assertTrue(zswap.any { it.contains("zswap parameters") }, zswap.toString())
         assertTrue(zswap.any { it.contains("zswap counters") }, zswap.toString())
     }

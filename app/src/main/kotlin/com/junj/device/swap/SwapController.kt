@@ -45,10 +45,9 @@ class SwapController(
     }
 
     fun enableFlashSwap(flashSwapDeviceSizeMB: Int) {
-        adb.rootShell("dd if=/dev/zero of=$FLASH_SWAP_FILE bs=1M count=$flashSwapDeviceSizeMB")
-        adb.rootShell("chmod 600 $FLASH_SWAP_FILE")
-        adb.rootShell("mkswap $FLASH_SWAP_FILE")
-        adb.rootShell("swapon $FLASH_SWAP_FILE")
+        val device = mapFlashDevice(adb, flashSwapDeviceSizeMB)
+        checkedZramCommand(adb, "mkswap $device")
+        checkedZramCommand(adb, "swapon $device")
         println(adb.rootShell("cat /proc/swaps").output)
     }
 
@@ -116,7 +115,7 @@ class SwapController(
             }
             ArgType.ZRAM_WRITEBACK.code -> {
                 logger.log(LogType.SUMMARY, "config.swapLabel=zRAM + writeback")
-                val backing = enableZramWriteback(
+                val backing = enableMappedZramWriteback(
                     adb = adb,
                     backingSizeMB = config.flashSwapDeviceSizeMB,
                     intervalSec = config.zramWritebackIntervalSec,
@@ -178,7 +177,7 @@ internal fun swapConfigProbes(
 
     when (swapType) {
         ArgType.ONLY_FLASH_SWAP.code, ArgType.ZSWAP.code ->
-            add(SwapConfigProbe("flash swap file", "ls -l $flashSwapFile"))
+            add(SwapConfigProbe("flash swap device", "dmctl table flash_swap"))
 
         ArgType.ZRAM_WRITEBACK.code -> {
             add(SwapConfigProbe("zram0 backing_dev", "cat $zramSysfs/backing_dev"))

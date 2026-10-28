@@ -1,5 +1,7 @@
 package com.junj.output.csv
 
+import com.junj.domain.metrics.flashKbDelta
+
 import com.junj.domain.ExperimentResults
 import com.junj.domain.launch.LaunchApplicationItem
 import com.junj.domain.metrics.SamplingItem
@@ -179,6 +181,8 @@ fun saveSampleResultsToCsv(
                 "zswapWrittenBackPages",
                 "zswapWrittenBackSize(KB)",
                 "zswapWriteBw(MB/s)",
+                "flashDeviceRead(KB/interval)",
+                "flashDeviceWrite(KB/interval)",
             ).joinToString(",")
         )
 
@@ -235,7 +239,9 @@ fun saveSampleResultsToCsv(
                     // 池满拒绝计数不能算进写回吞吐。首样本无运行前基线，速率记 0。
                     if (previous != null && item.pageSizeKb == previous.pageSizeKb) {
                         counterRateMbPerSecond(item.zswapWrittenBackPages, previous.zswapWrittenBackPages, elapsedMs, item.pageSizeKb)
-                    } else 0.0
+                    } else 0.0,
+                    flashKbDelta(item.flashDeviceReadKb, previous?.flashDeviceReadKb),
+                    flashKbDelta(item.flashDeviceWriteKb, previous?.flashDeviceWriteKb),
                 ).joinToString(",") { value->
                     escapeCsv(value.toString())
                 }
