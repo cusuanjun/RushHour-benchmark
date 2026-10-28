@@ -11,7 +11,7 @@ SCRIPT_STARTED = time.monotonic()
 
 
 def main():
-    # 中文标签仅用于提示和日志，步骤标识及 JSON 状态值保持原样。
+
     step_labels = {
         "open_top_left_pin": "打开左侧图片卡片",
         "open_top_right_pin": "打开右侧图片卡片",

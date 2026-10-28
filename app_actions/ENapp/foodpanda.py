@@ -10,7 +10,6 @@ import uiautomator2 as u2
 
 
 def main():
-    # 中文标签仅用于提示和日志，步骤标识及 JSON 状态值保持原样。
     step_labels = {
         "open_manual_address": "打开手动填写地址页面",
         "wait_and_confirm": "等待并确认",

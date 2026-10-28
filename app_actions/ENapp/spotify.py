@@ -11,7 +11,7 @@ import uiautomator2 as u2
 
 
 def main():
-    # 中文标签仅用于提示和日志，步骤标识及 JSON 状态值保持原样。
+
     step_labels = {
         "return_to_home": "返回首页",
         "browse_down_1": "第一次向下浏览",

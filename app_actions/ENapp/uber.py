@@ -12,7 +12,6 @@ import uiautomator2 as u2
 
 
 def main():
-    # 中文标签仅用于提示和日志，步骤标识及 JSON 状态值保持原样。
     step_labels = {
         "input_keyword": "输入关键词",
         "open_destination": "打开目的地输入页",

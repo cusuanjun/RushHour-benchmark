@@ -6,7 +6,6 @@ from pathlib import Path
 import uiautomator2 as u2
 
 def main():
-    # 中文标签仅用于提示和日志，步骤标识及 JSON 状态值保持原样。
     step_labels = {
         "open_search": "打开搜索",
         "return_1": "第一次返回",

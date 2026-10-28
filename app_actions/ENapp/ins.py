@@ -14,7 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent
 
 
 def main():
-    # 中文标签仅用于提示和日志，步骤标识及 JSON 状态值保持原样。
+
     step_labels = {
         "browse_up": "向上浏览",
         "browse_down": "向下浏览",
