@@ -11,6 +11,15 @@ import uiautomator2 as u2
 
 
 def main():
+    # 中文标签仅用于提示和日志，步骤标识及 JSON 状态值保持原样。
+    step_labels = {
+        "input_prompt": "输入提问内容",
+        "send_prompt": "发送提问",
+        "read_response": "阅读回复",
+        "tap_bottom_center": "点击消息输入框",
+    }
+    status_labels = {"PASS": "成功", "FAIL": "失败", "RUNNING": "执行中", "COMPLETED": "已完成"}
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--time", type=float, default=10)
     parser.add_argument("--interval", type=float, default=0.1)
@@ -18,9 +27,9 @@ def main():
     args = parser.parse_args()
 
     if not all(math.isfinite(v) for v in vars(args).values()):
-        parser.error("Timing values must be finite")
+        parser.error("时间参数必须是有限数值，不能为无穷大或 NaN")
     if args.time < 0 or args.interval < 0 or args.timeout <= 0:
-        parser.error("--time/--interval >= 0; --timeout > 0")
+        parser.error("--time 和 --interval 必须大于或等于 0；--timeout 必须大于 0")
 
     config = json.loads(
         (Path(__file__).resolve().parent / "profiles" / "chatgpt.json")
@@ -40,7 +49,7 @@ def main():
             time.sleep(args.interval)
         row = {"name": name, "status": "RUNNING"}
         result["steps"].append(row)
-        print("[chatgpt] %02d %s" % (len(result["steps"]), name),
+        print("[chatgpt] 第 %02d 步：%s" % (len(result["steps"]), step_labels.get(name, name)),
               flush=True)
         started = time.monotonic()
         try:
@@ -56,8 +65,8 @@ def main():
             row["elapsed_seconds"] = round(
                 time.monotonic() - started, 3
             )
-            print("[chatgpt] %s %s in %.3fs" % (
-                name, row["status"], row["elapsed_seconds"]
+            print("[chatgpt] %s %s，耗时 %.3f 秒" % (
+                step_labels.get(name, name), status_labels.get(row["status"], row["status"]), row["elapsed_seconds"]
             ), flush=True)
 
     try:
@@ -69,7 +78,7 @@ def main():
         d.implicitly_wait(0)
 
         if d.app_current().get("package") != package:
-            raise RuntimeError("Open ChatGPT in the foreground first")
+            raise RuntimeError("请先将 ChatGPT 打开到前台")
         width, height = d.window_size()
 
         def input_prompt():
@@ -78,13 +87,13 @@ def main():
                 className="android.widget.EditText",
             )
             if not field.wait(timeout=args.timeout):
-                raise RuntimeError("Message input not found")
+                raise RuntimeError("未找到消息输入框")
             if field.count != 1:
-                raise RuntimeError("Multiple message inputs found")
+                raise RuntimeError("匹配到多个消息输入框")
             field.click()
             field.set_text(config["prompt"])
             if field.get_text() != config["prompt"]:
-                raise RuntimeError("Input verification failed")
+                raise RuntimeError("输入内容校验失败")
             return {"method": "input_control", "value": config["prompt"]}
 
         def send_prompt():
@@ -103,7 +112,7 @@ def main():
                     }
                 if time.monotonic() >= stop:
                     raise RuntimeError(
-                        "Send arrow not found; UI hierarchy is needed"
+                        "未找到发送箭头，需要提供当前页面的界面层级 XML"
                     )
                 time.sleep(0.15)
 
@@ -123,9 +132,9 @@ def main():
                 className="android.widget.EditText",
             )
             if not field.wait(timeout=args.timeout):
-                raise RuntimeError("Message input not found")
+                raise RuntimeError("未找到消息输入框")
             if field.count != 1:
-                raise RuntimeError("Multiple message inputs found")
+                raise RuntimeError("匹配到多个消息输入框")
 
             field.click(timeout=0.5)
             return {"method": "input_control_click"}
@@ -133,7 +142,7 @@ def main():
         result["initialization_seconds"] = round(
             time.monotonic() - SCRIPT_STARTED, 3
         )
-        print("[chatgpt] initialization completed in %.3fs"
+        print("[chatgpt] 初始化完成，耗时 %.3f 秒"
               % result["initialization_seconds"], flush=True)
 
         step("input_prompt", input_prompt)
@@ -146,7 +155,7 @@ def main():
             0.0, SCRIPT_STARTED + args.time - time.monotonic()
         )
         result["wait_before_final_seconds"] = round(remaining, 3)
-        print("[chatgpt] waiting %.3fs before final tap"
+        print("[chatgpt] 等待 %.3f 秒后执行最后一次点击"
               % remaining, flush=True)
         time.sleep(remaining)
 
@@ -158,7 +167,7 @@ def main():
 
     except Exception as exc:
         result["error"] = "%s: %s" % (type(exc).__name__, exc)
-        print("[chatgpt] FAIL: " + result["error"], flush=True)
+        print("[chatgpt] 失败：" + result["error"], flush=True)
     finally:
         result["elapsed_seconds"] = round(
             time.monotonic() - SCRIPT_STARTED, 3

@@ -16,6 +16,15 @@ BASE_DIR = Path(__file__).resolve().parent
 
 
 def main():
+    # 中文标签仅用于提示和日志，步骤标识及 JSON 状态值保持原样。
+    step_labels = {
+        "open_search": "打开搜索",
+        "input_keyword": "输入关键词",
+        "submit_search": "提交搜索",
+        "browse_up": "向上浏览",
+        "return_right_1": "第一次向右滑动返回",
+    }
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--time", type=float, default=10)
     parser.add_argument("--interval", type=float, default=0.1)
@@ -26,10 +35,10 @@ def main():
         math.isfinite(v)
         for v in (args.time, args.interval, args.timeout)
     ):
-        parser.error("Timing values must be finite")
+        parser.error("时间参数必须是有限数值，不能为无穷大或 NaN")
 
     if args.time < 0 or args.interval < 0 or args.timeout <= 0:
-        parser.error("--time/--interval >= 0; --timeout > 0")
+        parser.error("--time 和 --interval 必须大于或等于 0；--timeout 必须大于 0")
 
     config_path = (
         BASE_DIR / "profiles" / (Path(__file__).stem + ".json")
@@ -69,7 +78,7 @@ def main():
                 return
             if time.monotonic() >= deadline:
                 raise RuntimeError(
-                    "Expected control not found: "
+                    "未找到预期控件："
                     + json.dumps(rules, ensure_ascii=False)
                 )
             time.sleep(0.2)
@@ -84,7 +93,7 @@ def main():
 
             if time.monotonic() >= deadline:
                 raise RuntimeError(
-                    "Control absent or ambiguous: "
+                    "控件不存在或匹配不唯一："
                     + json.dumps(rules, ensure_ascii=False)
                 )
             time.sleep(0.2)
@@ -167,7 +176,7 @@ def main():
         deadline = time.monotonic() + args.timeout
         while field.get_text() != keyword:
             if time.monotonic() >= deadline:
-                raise RuntimeError("Search input verification failed")
+                raise RuntimeError("搜索输入内容校验失败")
             time.sleep(0.2)
 
         return {"value": keyword}
@@ -217,7 +226,7 @@ def main():
         )
 
         if d.app_current().get("package") != package:
-            raise RuntimeError("Open Google Maps in the foreground")
+            raise RuntimeError("请将 Google 地图打开到前台")
 
         screen_size = d.window_size()
         wait_for(selectors["home"])
@@ -226,7 +235,7 @@ def main():
             time.monotonic() - SCRIPT_STARTED, 3
         )
         print(
-            "[gmap] initialization completed in %.3fs"
+            "[gmap] 初始化完成，耗时 %.3f 秒"
             % result["initialization_seconds"],
             flush=True,
         )
@@ -254,7 +263,7 @@ def main():
 
                 if remaining:
                     print(
-                        "[gmap] waiting %.3fs before returning"
+                        "[gmap] 等待 %.3f 秒后返回"
                         % remaining,
                         flush=True,
                     )
@@ -267,7 +276,7 @@ def main():
             row = {"name": name, "status": "RUNNING"}
             result["steps"].append(row)
 
-            print("[gmap] %02d %s" % (index, name), flush=True)
+            print("[gmap] 第 %02d 步：%s" % (index, step_labels.get(name, name)), flush=True)
 
             step_started = time.monotonic()
             detail = action()
@@ -282,8 +291,8 @@ def main():
                 row["detail"] = detail
 
             print(
-                "[gmap] %s completed in %.3fs"
-                % (name, row["elapsed_seconds"]),
+                "[gmap] %s 已完成，耗时 %.3f 秒"
+                % (step_labels.get(name, name), row["elapsed_seconds"]),
                 flush=True,
             )
             step_started = None
@@ -301,8 +310,8 @@ def main():
                     time.monotonic() - step_started, 3
                 )
             print(
-                "[gmap] %s failed in %.3fs: %s"
-                % (row["name"], row.get("elapsed_seconds", 0), error),
+                "[gmap] %s 失败，耗时 %.3f 秒: %s"
+                % (step_labels.get(row["name"], row["name"]), row.get("elapsed_seconds", 0), error),
                 flush=True,
             )
 

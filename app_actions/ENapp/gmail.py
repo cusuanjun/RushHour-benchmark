@@ -14,6 +14,14 @@ BASE_DIR = Path(__file__).resolve().parent
 
 
 def main():
+    # 中文标签仅用于提示和日志，步骤标识及 JSON 状态值保持原样。
+    step_labels = {
+        "return_to_home": "返回首页",
+        "open_mail": "打开邮件",
+        "scroll_mail": "滚动邮件",
+        "read_mail": "阅读邮件",
+    }
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--time", type=float, default=10)
     parser.add_argument("--interval", type=float, default=0.1)
@@ -24,10 +32,10 @@ def main():
         math.isfinite(v)
         for v in (args.time, args.interval, args.timeout)
     ):
-        parser.error("Timing values must be finite")
+        parser.error("时间参数必须是有限数值，不能为无穷大或 NaN")
 
     if args.time < 0 or args.interval < 0 or args.timeout <= 0:
-        parser.error("--time/--interval >= 0; --timeout > 0")
+        parser.error("--time 和 --interval 必须大于或等于 0；--timeout 必须大于 0")
 
     config = json.loads(
         (BASE_DIR / "profiles" / "gmail.json")
@@ -75,7 +83,7 @@ def main():
 
         wait_until(
             lambda: present(selectors["mail"]),
-            "Mail detail page did not appear",
+            "邮件详情页未出现",
         )
 
         result["mail_opened_elapsed_seconds"] = round(
@@ -109,7 +117,7 @@ def main():
         )
 
         print(
-            "[gmail] staying on mail for %.3fs" % remaining,
+            "[gmail] 继续停留在邮件页 %.3f 秒" % remaining,
             flush=True,
         )
         if remaining:
@@ -133,7 +141,7 @@ def main():
                 present(selectors["home"])
                 and not present(selectors["mail"])
             ),
-            "Inbox did not reappear after one Back",
+            "按一次返回键后，收件箱未重新出现",
         )
 
         result["home_elapsed_seconds"] = round(
@@ -149,21 +157,21 @@ def main():
         )
 
         if d.app_current().get("package") != package:
-            raise RuntimeError("Open Gmail in the foreground")
+            raise RuntimeError("请将 Gmail 打开到前台")
 
         wait_until(
             lambda: (
                 present(selectors["home"])
                 and not present(selectors["mail"])
             ),
-            "Open the Gmail inbox before running",
+            "运行前请先打开 Gmail 收件箱",
         )
 
         result["initialization_seconds"] = round(
             time.monotonic() - SCRIPT_STARTED, 3
         )
         print(
-            "[gmail] initialization completed in %.3fs"
+            "[gmail] 初始化完成，耗时 %.3f 秒"
             % result["initialization_seconds"],
             flush=True,
         )
@@ -184,7 +192,7 @@ def main():
             row = {"name": name, "status": "RUNNING"}
             result["steps"].append(row)
 
-            print("[gmail] %02d %s" % (index, name), flush=True)
+            print("[gmail] 第 %02d 步：%s" % (index, step_labels.get(name, name)), flush=True)
             step_started = time.monotonic()
 
             detail = action()
@@ -197,8 +205,8 @@ def main():
                 detail=detail,
             )
             print(
-                "[gmail] %s completed in %.3fs"
-                % (name, row["elapsed_seconds"]),
+                "[gmail] %s 已完成，耗时 %.3f 秒"
+                % (step_labels.get(name, name), row["elapsed_seconds"]),
                 flush=True,
             )
             step_started = None
@@ -216,12 +224,12 @@ def main():
                     time.monotonic() - step_started, 3
                 )
             print(
-                "[gmail] %s failed in %.3fs: %s"
-                % (row["name"], row["elapsed_seconds"], error),
+                "[gmail] %s 失败，耗时 %.3f 秒: %s"
+                % (step_labels.get(row["name"], row["name"]), row["elapsed_seconds"], error),
                 flush=True,
             )
         else:
-            print("[gmail] FAIL: " + error, flush=True)
+            print("[gmail] 失败：" + error, flush=True)
 
     finally:
         result["elapsed_seconds"] = round(

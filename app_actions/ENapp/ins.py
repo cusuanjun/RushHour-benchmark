@@ -14,6 +14,16 @@ BASE_DIR = Path(__file__).resolve().parent
 
 
 def main():
+    # 中文标签仅用于提示和日志，步骤标识及 JSON 状态值保持原样。
+    step_labels = {
+        "browse_up": "向上浏览",
+        "browse_down": "向下浏览",
+        "double_tap_1": "第一次双击",
+        "double_tap_2": "第二次双击",
+        "browse_down_1": "第一次向下浏览",
+        "browse_up_1": "第一次向上浏览",
+    }
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--time", type=float, default=10)
     parser.add_argument("--interval", type=float, default=0.1)
@@ -22,9 +32,9 @@ def main():
 
     values = (args.time, args.interval, args.timeout)
     if not all(math.isfinite(v) for v in values):
-        parser.error("Timing values must be finite")
+        parser.error("时间参数必须是有限数值，不能为无穷大或 NaN")
     if args.time < 0 or args.interval < 0 or args.timeout <= 0:
-        parser.error("--time/--interval >= 0; --timeout > 0")
+        parser.error("--time 和 --interval 必须大于或等于 0；--timeout 必须大于 0")
 
     config = json.loads(
         (BASE_DIR / "profiles" / "ins.json")
@@ -53,7 +63,7 @@ def main():
 
         if d.app_current().get("package") != package:
             raise RuntimeError(
-                "Open Instagram Home before running"
+                "运行前请先打开 Instagram 首页"
             )
 
         width, height = d.window_size()
@@ -80,19 +90,19 @@ def main():
 
             if feed.count != 1:
                 raise RuntimeError(
-                    "Feed container is absent or ambiguous"
+                    "内容流容器不存在或匹配不唯一"
                 )
 
             info = feed.info
             box = info.get("visibleBounds") or info["bounds"]
 
             x = (box["left"] + box["right"]) // 2
-            margin = max(8, (box["bottom"] - box["top"]) // 20)
+            margin = max(8, (box["bottom"] - box["top"]) // 50)
             top = box["top"] + margin
             bottom = box["bottom"] - margin
 
             if bottom <= top:
-                raise RuntimeError("Feed has no usable gesture area")
+                raise RuntimeError("内容流中没有可用的手势操作区域")
 
             if key == "browse_down":
                 start_y, end_y = bottom, top
@@ -113,7 +123,7 @@ def main():
             time.monotonic() - SCRIPT_STARTED, 3
         )
         print(
-            "[ins] initialization completed in %.3fs"
+            "[ins] 初始化完成，耗时 %.3f 秒"
             % result["initialization_seconds"],
             flush=True,
         )
@@ -122,10 +132,10 @@ def main():
             ("double_tap_1", double_tap),
             ("browse_down_1", lambda: swipe("browse_down")),
             ("double_tap_2", double_tap),
-            ("browse_down_2", lambda: swipe("browse_down")),
-            ("double_tap_3", double_tap),
+            # ("browse_down_2", lambda: swipe("browse_down")),
+            # ("double_tap_3", double_tap),
             ("browse_up_1", lambda: swipe("browse_up")),
-            ("browse_up_2", lambda: swipe("browse_up")),
+            # ("browse_up_2", lambda: swipe("browse_up")),
         ]
 
         for index, (name, action) in enumerate(steps, 1):
@@ -143,7 +153,7 @@ def main():
 
                 if remaining:
                     print(
-                        "[ins] waiting %.3fs before scrolling back"
+                        "[ins] 等待 %.3f 秒后向上滑动返回"
                         % remaining,
                         flush=True,
                     )
@@ -156,7 +166,7 @@ def main():
             row = {"name": name, "status": "RUNNING"}
             result["steps"].append(row)
 
-            print("[ins] %02d %s" % (index, name), flush=True)
+            print("[ins] 第 %02d 步：%s" % (index, step_labels.get(name, name)), flush=True)
 
             step_started = time.monotonic()
             detail = action()
@@ -170,8 +180,8 @@ def main():
             )
 
             print(
-                "[ins] %s completed in %.3fs"
-                % (name, row["elapsed_seconds"]),
+                "[ins] %s 已完成，耗时 %.3f 秒"
+                % (step_labels.get(name, name), row["elapsed_seconds"]),
                 flush=True,
             )
             step_started = None
@@ -191,12 +201,12 @@ def main():
                 ),
             )
             print(
-                "[ins] %s failed in %.3fs: %s"
-                % (row["name"], row["elapsed_seconds"], error),
+                "[ins] %s 失败，耗时 %.3f 秒: %s"
+                % (step_labels.get(row["name"], row["name"]), row["elapsed_seconds"], error),
                 flush=True,
             )
         else:
-            print("[ins] FAIL: " + error, flush=True)
+            print("[ins] 失败：" + error, flush=True)
 
     finally:
         result["elapsed_seconds"] = round(

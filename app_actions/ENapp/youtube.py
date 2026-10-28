@@ -8,25 +8,34 @@ import math
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
-
 import uiautomator2 as u2
 
-
+# BASE_DIR = ENapp 路径
 BASE_DIR = Path(__file__).resolve().parent
 
-
 def main():
+    # 中文标签仅用于提示和日志，步骤标识及 JSON 状态值保持原样。
+    step_labels = {
+        "open_search": "打开搜索",
+        "input_keyword": "输入关键词",
+        "submit_search": "提交搜索",
+        "open_first_video": "打开第一个视频",
+        "return_to_results": "返回搜索结果页",
+        "return_to_home": "返回首页",
+        "close_miniplayer": "关闭小窗",
+    }
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--time", type=float, default=10)
     parser.add_argument("--interval", type=float, default=0.1)
     parser.add_argument("--timeout", type=float, default=10)
     args = parser.parse_args()
-
+    # 等待多久返回    每个步骤时间间隔    超时时间
     values = (args.time, args.interval, args.timeout)
     if not all(math.isfinite(value) for value in values):
-        parser.error("Timing values must be finite")
+        parser.error("时间必须是有限的数值")
     if args.time < 0 or args.interval < 0 or args.timeout <= 0:
-        parser.error("--time/--interval >= 0; --timeout > 0")
+        parser.error("--time 和 --interval 必须大于或等于 0；--timeout 必须大于 0")
 
     config = json.loads(
         (BASE_DIR / "profiles" / "youtube.json")
@@ -35,7 +44,6 @@ def main():
     package = config["package"]
     selectors = config["selectors"]
     app = config["app"]
-
     result = {
         "app": app,
         "package": package,
@@ -48,12 +56,14 @@ def main():
     row = None
     step_started = None
 
+    # 检查某组选择器是否能找到控件
     def present(rules):
         return any(
             d(packageName=package, **rule).exists
             for rule in rules
         )
 
+    # 循环检查，直到满足条件或超时
     def wait_until(check, message):
         deadline = time.monotonic() + args.timeout
         while True:
@@ -63,6 +73,7 @@ def main():
                 raise RuntimeError(message)
             time.sleep(0.2)
 
+    # 寻找唯一控件，必要时选最靠上的匹配项
     def find_control(rules, first=False):
         deadline = time.monotonic() + args.timeout
 
@@ -87,16 +98,16 @@ def main():
                             matches.append(
                                 (box["top"], box["left"], index)
                             )
-
                     if matches:
                         return control[min(matches)[2]]
-
+                    
+            # 如果一直找不到唯一控件，直到超时就报错
             if time.monotonic() >= deadline:
                 raise RuntimeError(
-                    "Control absent or ambiguous: "
+                    "控件不存在或匹配不唯一："
                     + json.dumps(rules, ensure_ascii=False)
                 )
-
+            
             time.sleep(0.2)
 
     def home_active():
@@ -141,7 +152,7 @@ def main():
         find_control(selectors["search_button"]).click()
         wait_until(
             lambda: present(selectors["search_input"]),
-            "Search input did not appear",
+            "搜索输入框未出现",
         )
 
     def input_keyword():
@@ -150,7 +161,7 @@ def main():
 
         wait_until(
             lambda: field.get_text() == config["keyword"],
-            "Search input verification failed",
+            "搜索输入内容校验失败",
         )
         return {"value": config["keyword"]}
     
@@ -159,29 +170,31 @@ def main():
         time.sleep(1.0)
         return {"verification": "deferred_until_video_open"}
 
-    def scroll_results():
-        width, height = d.window_size()
+    # def scroll_results():
+    #     width, height = d.window_size()
 
-        d.swipe(
-            int(width * 0.50),
-            int(height * 0.75),
-            int(width * 0.50),
-            int(height * 0.35),
-            duration=0.3,
-        )
-        time.sleep(0.5)
-        return {"direction": "up", "swipe_count": 1}
+    #     d.swipe(
+    #         int(width * 0.50),
+    #         int(height * 0.75),
+    #         int(width * 0.50),
+    #         int(height * 0.35),
+    #         duration=0.3,
+    #     )
+    #     time.sleep(0.5)
+    #     return {"direction": "up", "swipe_count": 1}
 
     def open_first_video():
-        width, height = d.window_size()
+        # width, height = d.window_size()
 
-        x_ratio = 0.45
-        y_ratio = 0.415
+        # x_ratio = 0.5
+        # y_ratio = 0.5
 
-        d.click(
-            int(width * x_ratio),
-            int(height * y_ratio),
-        )
+        # d.click(
+        #     int(width * x_ratio),
+        #     int(height * y_ratio),
+        # )
+        video = find_control(selectors["first_video"], first=True)
+        video.click()
 
         def video_page_opened():
             search_query = d(
@@ -197,7 +210,7 @@ def main():
 
         wait_until(
             video_page_opened,
-            "Video detail page did not open after tapping title",
+            "点击视频标题后，视频详情页未打开",
         )
 
         result["video_opened_elapsed_seconds"] = round(
@@ -205,10 +218,8 @@ def main():
         )
 
         return {
-            "method": "screen_ratio",
-            "target": "first_visible_video_title",
-            "x_ratio": x_ratio,
-            "y_ratio": y_ratio,
+            "method": "first_video_selector",
+            "selector": selectors["first_video"],
             "player_page_verified": True,
         }
 
@@ -220,7 +231,7 @@ def main():
                 packageName=package,
                 resourceId=package + ":id/search_query",
             ).exists,
-            "Search results did not reappear after first Back",
+            "第一次返回后，搜索结果页未重新出现",
         )
 
         return {"search_query_visible": True}
@@ -229,7 +240,7 @@ def main():
         d.press("back")
         wait_until(
             home_active,
-            "Selected Home tab not found after second Back",
+            "第二次返回后，未检测到处于选中状态的首页标签",
         )
         result["home_elapsed_seconds"] = round(
             time.monotonic() - SCRIPT_STARTED, 3
@@ -247,11 +258,11 @@ def main():
                 not present(selectors["miniplayer"])
                 and not present(selectors["close_miniplayer"])
             ),
-            "Miniplayer remained visible after Close",
+            "点击关闭后，小窗仍然可见",
         )
         wait_until(
             home_active,
-            "Home tab verification failed after closing miniplayer",
+            "关闭小窗后，首页标签校验失败",
         )
 
         return {
@@ -268,20 +279,20 @@ def main():
         )
 
         if d.app_current().get("package") != package:
-            raise RuntimeError("Open YouTube in the foreground")
+            raise RuntimeError("请将 YouTube 打开到前台")
 
-        wait_until(home_active, "Open YouTube Home before running")
+        wait_until(home_active, "运行前请先打开 YouTube 首页")
 
         if present(selectors["miniplayer"]):
             raise RuntimeError(
-                "Close the existing miniplayer before running"
+                "运行前请先关闭现有小窗"
             )
 
         result["initialization_seconds"] = round(
             time.monotonic() - SCRIPT_STARTED, 3
         )
         print(
-            "[%s] initialization completed in %.3fs"
+            "[%s] 初始化完成，耗时 %.3f 秒"
             % (app, result["initialization_seconds"]),
             flush=True,
         )
@@ -290,7 +301,7 @@ def main():
             ("open_search", open_search),
             ("input_keyword", input_keyword),
             ("submit_search", submit_search),
-            ("scroll_results", scroll_results),
+            # ("scroll_results", scroll_results),
             ("open_first_video", open_first_video),
             ("return_to_results", return_to_results),
             ("return_to_home", return_to_home),
@@ -312,7 +323,7 @@ def main():
 
                 if remaining:
                     print(
-                        "[%s] waiting %.3fs before returning"
+                        "[%s] 等待 %.3f 秒后返回"
                         % (app, remaining),
                         flush=True,
                     )
@@ -326,7 +337,7 @@ def main():
             result["steps"].append(row)
 
             print(
-                "[%s] %02d %s" % (app, index, name),
+                "[%s] 第 %02d 步：%s" % (app, index, step_labels.get(name, name)),
                 flush=True,
             )
 
@@ -343,8 +354,8 @@ def main():
                 row["detail"] = detail
 
             print(
-                "[%s] %s completed in %.3fs"
-                % (app, name, row["elapsed_seconds"]),
+                "[%s] %s 已完成，耗时 %.3f 秒"
+                % (app, step_labels.get(name, name), row["elapsed_seconds"]),
                 flush=True,
             )
             step_started = None
@@ -362,7 +373,7 @@ def main():
                     time.monotonic() - step_started, 3
                 )
 
-        print("[%s] FAIL: %s" % (app, error), flush=True)
+        print("[%s] 失败：%s" % (app, error), flush=True)
 
     finally:
         result["elapsed_seconds"] = round(

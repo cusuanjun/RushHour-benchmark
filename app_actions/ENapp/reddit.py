@@ -11,6 +11,18 @@ import uiautomator2 as u2
 
 
 def main():
+    # 中文标签仅用于提示和日志，步骤标识及 JSON 状态值保持原样。
+    step_labels = {
+        "open_search": "打开搜索",
+        "input_keyword": "输入关键词",
+        "submit_search": "提交搜索",
+        "return_to_results": "返回搜索结果页",
+        "return_to_home": "返回首页",
+        "open_result": "打开搜索结果",
+        "read_until_time": "浏览内容直到设定时间",
+    }
+    status_labels = {"PASS": "成功", "FAIL": "失败", "RUNNING": "执行中", "COMPLETED": "已完成"}
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--time", type=float, default=10)
     parser.add_argument("--interval", type=float, default=0.1)
@@ -18,9 +30,9 @@ def main():
     args = parser.parse_args()
 
     if not all(math.isfinite(v) for v in vars(args).values()):
-        parser.error("Timing values must be finite")
+        parser.error("时间参数必须是有限数值，不能为无穷大或 NaN")
     if args.time < 0 or args.interval < 0 or args.timeout <= 0:
-        parser.error("--time/--interval >= 0; --timeout > 0")
+        parser.error("--time 和 --interval 必须大于或等于 0；--timeout 必须大于 0")
 
     config = json.loads(
         (Path(__file__).resolve().parent / "profiles" / "reddit.json")
@@ -42,7 +54,7 @@ def main():
             time.sleep(args.interval)
         row = {"name": name, "status": "RUNNING"}
         result["steps"].append(row)
-        print("[reddit] %02d %s" % (len(result["steps"]), name),
+        print("[reddit] 第 %02d 步：%s" % (len(result["steps"]), step_labels.get(name, name)),
               flush=True)
         started = time.monotonic()
         try:
@@ -58,8 +70,8 @@ def main():
             row["elapsed_seconds"] = round(
                 time.monotonic() - started, 3
             )
-            print("[reddit] %s %s in %.3fs" % (
-                name, row["status"], row["elapsed_seconds"]
+            print("[reddit] %s %s，耗时 %.3f 秒" % (
+                step_labels.get(name, name), status_labels.get(row["status"], row["status"]), row["elapsed_seconds"]
             ), flush=True)
 
     try:
@@ -71,7 +83,7 @@ def main():
         d.implicitly_wait(0)
 
         if d.app_current().get("package") != package:
-            raise RuntimeError("Open Reddit in the foreground first")
+            raise RuntimeError("请先将 Reddit 打开到前台")
         width, height = d.window_size()
 
         def find_search():
@@ -93,7 +105,7 @@ def main():
                     target.click(timeout=0.5)
                     break
                 if time.monotonic() >= stop:
-                    raise RuntimeError("Search entry not found")
+                    raise RuntimeError("未找到搜索入口")
                 time.sleep(0.15)
 
             field = d(
@@ -101,7 +113,7 @@ def main():
                 className="android.widget.EditText",
             )
             if not field.wait(timeout=args.timeout):
-                raise RuntimeError("Search input did not appear")
+                raise RuntimeError("搜索输入框未出现")
             return {"method": "search_control"}
 
         def input_keyword():
@@ -110,35 +122,81 @@ def main():
                 className="android.widget.EditText",
             )
             if fields.count != 1:
-                raise RuntimeError("Search input absent or ambiguous")
+                raise RuntimeError("搜索输入框不存在或匹配不唯一")
             fields.set_text(config["keyword"])
             if fields.get_text() != config["keyword"]:
-                raise RuntimeError("Search input verification failed")
+                raise RuntimeError("搜索输入内容校验失败")
             return {"value": config["keyword"]}
 
         def submit_search():
-            x_ratio, y_ratio = 0.93, 0.955
-            d.click(
-                int(width * x_ratio),
-                int(height * y_ratio),
+            # 清除 Enter 可能留下的换行和空白。
+            field = d(
+                packageName=package,
+                resourceId="expanded_search_field",
             )
-            time.sleep(gestures["results_settle"])
+            if not field.wait(timeout=args.timeout):
+                raise RuntimeError("搜索输入框未出现")
+
+            keyword = config["keyword"].strip()
+            field.set_text(keyword)
+
+            suggestion = d.xpath(
+                f"//*[@package='{package}'"
+                " and @resource-id='search_query_autocomplete_list_item'"
+                " and @clickable='true']"
+                "[.//*[@resource-id='selectable_query_item']]"
+                "[not(.//*[@resource-id='selectable_query_auto_suggested_item'])]"
+            )
+
+            stop = time.monotonic() + args.timeout
+            while True:
+                matches = suggestion.all()
+                exact = [
+                    row for row in matches
+                    if row.elem.xpath(
+                        ".//*[@resource-id='selectable_query_item']/@text"
+                    ) == [keyword]
+                ]
+
+                if len(exact) == 1:
+                    exact[0].click()
+                    break
+
+                if time.monotonic() >= stop:
+                    raise RuntimeError("未找到原关键词的搜索建议")
+                time.sleep(0.2)
+
+            posts = d.xpath(
+                f"//*[@package='{package}'"
+                " and @resource-id='search_post_section']"
+                "/*[@clickable='true' and @enabled='true']"
+            )
+            if not posts.wait(timeout=args.timeout):
+                raise RuntimeError("搜索后未检测到可点击的帖子")
+
             return {
-                "method": "keyboard_search_ratio_click",
-                "x_ratio": x_ratio,
-                "y_ratio": y_ratio,
-                "results_verified": False,
+                "method": "exact_query_suggestion_control",
+                "keyword": keyword,
+                "post_results_verified": True,
             }
 
         def open_result():
-            x, y = gestures["open_result"]
-            # PIXEL_ADAPTATION: user-requested proportional click.
-            # Verify that this position contains a result on each device.
-            d.click(int(width * x), int(height * y))
+            first_post = d.xpath(
+                f"(//*[@package='{package}'"
+                " and @resource-id='search_post_section']"
+                "/*[@clickable='true' and @enabled='true'])[1]"
+            )
+
+            if not first_post.wait(timeout=args.timeout):
+                raise RuntimeError("第一个帖子未出现")
+
+            post = first_post.get()
+            description = post.attrib.get("content-desc", "")
+            post.click()
+
             return {
-                "method": "screen_ratio",
-                "x_ratio": x,
-                "y_ratio": y,
+                "method": "first_post_control",
+                "description": description,
                 "detail_page_verified": False,
             }
 
@@ -167,13 +225,58 @@ def main():
             return {"swipe_count": count, "scroll_verified": False}
 
         def back():
+            # 等待刚打开帖子或上一次返回的动画结束。
+            time.sleep(0.8)
+
             d.press("back")
-            return {"method": "android_back"}
+
+            is_first_return = (
+                result["steps"][-1]["name"] == "return_to_results"
+            )
+
+            def results_visible():
+                search = d.xpath(
+                    f"//*[@package='{package}'"
+                    " and @resource-id='search_bar_field']"
+                )
+                tabs = d.xpath(
+                    f"//*[@package='{package}'"
+                    " and @resource-id='tab_group']"
+                )
+                return bool(search.exists) and bool(tabs.exists)
+
+            stop = time.monotonic() + args.timeout
+            while True:
+                visible = results_visible()
+
+                if is_first_return and visible:
+                    time.sleep(0.5)
+                    return {
+                        "method": "android_back",
+                        "search_results_verified": True,
+                    }
+
+                if not is_first_return and not visible:
+                    time.sleep(0.5)
+                    return {
+                        "method": "android_back",
+                        "search_results_left_verified": True,
+                        "home_verified": False,
+                    }
+
+                if time.monotonic() >= stop:
+                    raise RuntimeError(
+                        "返回后未出现搜索结果页"
+                        if is_first_return
+                        else "第二次返回后仍停留在搜索结果页"
+                    )
+
+                time.sleep(0.2)
 
         result["initialization_seconds"] = round(
             time.monotonic() - SCRIPT_STARTED, 3
         )
-        print("[reddit] initialization completed in %.3fs"
+        print("[reddit] 初始化完成，耗时 %.3f 秒"
               % result["initialization_seconds"], flush=True)
 
         run_step("open_search", open_search)
@@ -195,7 +298,7 @@ def main():
 
     except Exception as exc:
         result["error"] = "%s: %s" % (type(exc).__name__, exc)
-        print("[reddit] FAIL: " + result["error"], flush=True)
+        print("[reddit] 失败：" + result["error"], flush=True)
     finally:
         result["elapsed_seconds"] = round(
             time.monotonic() - SCRIPT_STARTED, 3

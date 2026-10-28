@@ -11,6 +11,16 @@ import uiautomator2 as u2
 
 
 def main():
+    # 中文标签仅用于提示和日志，步骤标识及 JSON 状态值保持原样。
+    step_labels = {
+        "open_search": "打开搜索",
+        "input_keyword": "输入关键词",
+        "submit_search": "提交搜索",
+        "return_to_home": "返回首页",
+        "browse_down_1": "第一次向下浏览",
+    }
+    status_labels = {"PASS": "成功", "FAIL": "失败", "RUNNING": "执行中", "COMPLETED": "已完成"}
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--time", type=float, default=10)
     parser.add_argument("--interval", type=float, default=0.1)
@@ -18,9 +28,9 @@ def main():
     args = parser.parse_args()
 
     if not all(math.isfinite(v) for v in vars(args).values()):
-        parser.error("Timing values must be finite")
+        parser.error("时间参数必须是有限数值，不能为无穷大或 NaN")
     if args.time < 0 or args.interval < 0 or args.timeout <= 0:
-        parser.error("--time/--interval >= 0; --timeout > 0")
+        parser.error("--time 和 --interval 必须大于或等于 0；--timeout 必须大于 0")
 
     config = json.loads(
         (Path(__file__).resolve().parent / "profiles" / "google.json")
@@ -42,7 +52,7 @@ def main():
 
         row = {"name": name, "status": "RUNNING"}
         result["steps"].append(row)
-        print("[google] %02d %s" % (len(result["steps"]), name),
+        print("[google] 第 %02d 步：%s" % (len(result["steps"]), step_labels.get(name, name)),
               flush=True)
         started = time.monotonic()
         try:
@@ -58,8 +68,8 @@ def main():
             row["elapsed_seconds"] = round(
                 time.monotonic() - started, 3
             )
-            print("[google] %s %s in %.3fs" % (
-                name, row["status"], row["elapsed_seconds"]
+            print("[google] %s %s，耗时 %.3f 秒" % (
+                step_labels.get(name, name), status_labels.get(row["status"], row["status"]), row["elapsed_seconds"]
             ), flush=True)
 
     try:
@@ -71,7 +81,7 @@ def main():
         d.implicitly_wait(0)
 
         if d.app_current().get("package") != package:
-            raise RuntimeError("Open Google in the foreground first")
+            raise RuntimeError("请先将 Google 打开到前台")
 
         width, height = d.window_size()
 
@@ -96,7 +106,7 @@ def main():
 
                 if time.monotonic() >= stop:
                     raise RuntimeError(
-                        "Home search box not found"
+                        "未找到首页搜索框"
                     )
                 time.sleep(0.15)
 
@@ -106,7 +116,7 @@ def main():
             )
             if not fields.wait(timeout=args.timeout):
                 raise RuntimeError(
-                    "Search input did not appear"
+                    "搜索输入框未出现"
                 )
 
             return {"method": "home_search_box_control"}
@@ -126,12 +136,12 @@ def main():
             elif fields.count == 1:
                 field = fields
             else:
-                raise RuntimeError("Search input absent or ambiguous")
+                raise RuntimeError("搜索输入框不存在或匹配不唯一")
 
             field.click()
             field.set_text(config["keyword"])
             if field.get_text() != config["keyword"]:
-                raise RuntimeError("Search input verification failed")
+                raise RuntimeError("搜索输入内容校验失败")
             return {"value": config["keyword"]}
 
         def submit_search():
@@ -175,7 +185,7 @@ def main():
         result["initialization_seconds"] = round(
             time.monotonic() - SCRIPT_STARTED, 3
         )
-        print("[google] initialization completed in %.3fs"
+        print("[google] 初始化完成，耗时 %.3f 秒"
               % result["initialization_seconds"], flush=True)
         step("open_search", open_search)
         step("input_keyword", input_keyword)
@@ -189,7 +199,7 @@ def main():
             0.0, SCRIPT_STARTED + args.time - time.monotonic()
         )
         result["wait_before_return_seconds"] = round(remaining, 3)
-        print("[google] waiting %.3fs before returning"
+        print("[google] 等待 %.3f 秒后返回"
               % remaining, flush=True)
         time.sleep(remaining)
 
@@ -201,7 +211,7 @@ def main():
 
     except Exception as exc:
         result["error"] = "%s: %s" % (type(exc).__name__, exc)
-        print("[google] FAIL: " + result["error"], flush=True)
+        print("[google] 失败：" + result["error"], flush=True)
     finally:
         result["elapsed_seconds"] = round(
             time.monotonic() - SCRIPT_STARTED, 3
