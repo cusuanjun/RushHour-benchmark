@@ -22,7 +22,10 @@
         ],
         "first_video": [
             {
-                "resourceId": "com.google.android.youtube:id/video_title"
+                "className": "android.view.ViewGroup",
+                "descriptionMatches": "(?is).* - (播放视频|Play video)$",
+                "clickable": true,
+                "enabled": true
             }
         ],
         "player": [

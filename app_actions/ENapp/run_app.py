@@ -21,6 +21,17 @@ APP_SCRIPTS = {
     "chatgpt": "chatgpt.py",
     "google": "google.py",
     "tiktok": "tiktok.py",
+    "github": "github.py",
+    "spotify": "spotify.py",
+    "uber": "uber.py",
+    "booking": "booking.py",
+    "pinterest": "pinterest.py",
+    "foodpanda": "foodpanda.py",
+    "wiki":"wiki.py",
+    "weather":"weather.py",
+    "gtranslate":"gtranslate.py",
+    "tripadvisor":"tripadvisor.py",
+    "aliexpress":"aliexpress.py",
 }
 
 
@@ -38,7 +49,7 @@ def main():
 
     script_path = BASE_DIR / APP_SCRIPTS[args.app]
     if not script_path.is_file():
-        parser.error("App script not found: %s" % script_path)
+        parser.error("未找到应用脚本：%s" % script_path)
 
     spec = importlib.util.spec_from_file_location(
         "_enapp_" + args.app,

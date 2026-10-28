@@ -11,15 +11,22 @@ import uiautomator2 as u2
 
 
 def main():
+    step_labels = {
+        "return_to_home": "返回首页",
+        "close_miniplayer": "关闭小窗",
+        "open_bottom_video": "打开底部可见视频",
+    }
+    status_labels = {"PASS": "成功", "FAIL": "失败", "RUNNING": "执行中", "COMPLETED": "已完成"}
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--time", type=float, default=10)
     parser.add_argument("--interval", type=float, default=0.1)
     parser.add_argument("--timeout", type=float, default=5)
     args = parser.parse_args()
     if not all(math.isfinite(v) for v in vars(args).values()):
-        parser.error("Timing values must be finite")
+        parser.error("时间参数必须是有限数值，不能为无穷大或 NaN")
     if args.time < 0 or args.interval < 0 or args.timeout <= 0:
-        parser.error("--time/--interval >= 0; --timeout > 0")
+        parser.error("--time 和 --interval 必须大于或等于 0；--timeout 必须大于 0")
 
     config = json.loads(
         (Path(__file__).resolve().parent / "profiles" / "twitch.json")
@@ -47,7 +54,7 @@ def main():
         )
 
     def open_bottom_video():
-        wait(home, "Home feed is not ready")
+        wait(home, "首页内容流尚未就绪")
         cards = control("card", clickable=True)
         choices = []
         for index in range(cards.count):
@@ -56,7 +63,7 @@ def main():
             if box["bottom"] > box["top"] and box["right"] > box["left"]:
                 choices.append((box["bottom"], index))
         if not choices:
-            raise RuntimeError("No visible video cards found")
+            raise RuntimeError("未找到可见的视频卡片")
         _, index = max(choices)
         cards[index].click()
         result["video_clicked_elapsed_seconds"] = round(
@@ -70,14 +77,14 @@ def main():
 
     def return_to_feed():
         d.press("back")
-        wait(home, "Home feed did not reappear")
+        wait(home, "首页内容流未重新出现")
         return {"home_verified": True}
 
     def close_miniplayer():
         import xml.etree.ElementTree as ET
         from uiautomator2.exceptions import UiObjectNotFoundError
 
-        wait(home, "Home feed is not ready")
+        wait(home, "首页内容流尚未就绪")
 
         close_button = d.xpath(
             "//*[@resource-id='theatre-screen']"
@@ -128,13 +135,13 @@ def main():
                 mini = control("miniplayer")
                 if not mini.exists:
                     raise RuntimeError(
-                        "Miniplayer entry missing; cannot verify closure"
+                        "未找到小窗入口，无法验证小窗是否关闭"
                     )
                 mini.click(timeout=0.5)
                 buttons = close_button.all()
 
             if len(buttons) > 1:
-                raise RuntimeError("Multiple close buttons found")
+                raise RuntimeError("匹配到多个关闭按钮")
             if not buttons:
                 continue
 
@@ -167,7 +174,7 @@ def main():
                     }
 
         raise RuntimeError(
-            "Close attempted 3 times; player disappearance not verified"
+            "已尝试关闭 3 次，仍未确认播放器已消失"
         )
 
     def run_step(name, action, apply_interval=True):
@@ -175,7 +182,7 @@ def main():
             time.sleep(args.interval)
         row = {"name": name, "status": "RUNNING"}
         result["steps"].append(row)
-        print("[twitch] %02d %s" % (len(result["steps"]), name), flush=True)
+        print("[twitch] 第 %02d 步：%s" % (len(result["steps"]), step_labels.get(name, name)), flush=True)
         started = time.monotonic()
         try:
             row["detail"] = action()
@@ -185,8 +192,8 @@ def main():
             raise
         finally:
             row["elapsed_seconds"] = round(time.monotonic() - started, 3)
-            print("[twitch] %s %s in %.3fs" % (
-                name, row["status"], row["elapsed_seconds"]
+            print("[twitch] %s %s，耗时 %.3f 秒" % (
+                step_labels.get(name, name), status_labels.get(row["status"], row["status"]), row["elapsed_seconds"]
             ), flush=True)
 
     try:
@@ -195,12 +202,12 @@ def main():
         result["connect_seconds"] = round(time.monotonic() - started, 3)
         d.implicitly_wait(args.timeout)
         if d.app_current().get("package") != package:
-            raise RuntimeError("Open Twitch in the foreground first")
-        wait(home, "Start from the Twitch home feed")
+            raise RuntimeError("请先将 Twitch 打开到前台")
+        wait(home, "请从 Twitch 首页内容流开始运行")
         if control("presenter").exists:
-            raise RuntimeError("Close any existing player before starting")
+            raise RuntimeError("开始前请先关闭现有播放器")
         result["initialization_seconds"] = round(time.monotonic() - SCRIPT_STARTED, 3)
-        print("[twitch] initialization completed in %.3fs" % result["initialization_seconds"], flush=True)
+        print("[twitch] 初始化完成，耗时 %.3f 秒" % result["initialization_seconds"], flush=True)
 
         run_step("open_bottom_video", open_bottom_video)
 
@@ -213,7 +220,7 @@ def main():
         )
         result["wait_before_return_seconds"] = round(remaining, 3)
         print(
-            "[twitch] watching for %.3fs before returning" % remaining,
+            "[twitch] 继续观看 %.3f 秒后返回" % remaining,
             flush=True,
         )
         time.sleep(remaining)
@@ -238,7 +245,7 @@ def main():
         result["status"] = "PASS"
     except Exception as exc:
         result["error"] = "%s: %s" % (type(exc).__name__, exc)
-        print("[twitch] FAIL: " + result["error"], flush=True)
+        print("[twitch] 失败：" + result["error"], flush=True)
     finally:
         result["elapsed_seconds"] = round(time.monotonic() - SCRIPT_STARTED, 3)
         print(json.dumps(result, ensure_ascii=False, indent=2))
