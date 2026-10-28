@@ -44,6 +44,9 @@ internal val SAMPLE_SCRIPT: String = listOf(
     // /proc/vmstat 的累计换入/换出页数：单位无歧义，做差即为本轮读写次数。
     "echo \"pswpin=\$(awk '/^pswpin/{print \$2}' /proc/vmstat)\"",
     "echo \"pswpout=\$(awk '/^pswpout/{print \$2}' /proc/vmstat)\"",
+    "echo $SAMPLE_MARKER FLASH_IO",
+    "for d in /sys/block/dm-*; do " +
+        "[ \"\$(cat \$d/dm/name 2>/dev/null)\" = flash_swap ] || continue; cat \$d/stat; break; done",
 ).joinToString("\n")
 
 class MetricsCollector(
@@ -87,6 +90,7 @@ internal fun parseSamplingItem(rawOutput: String, sampleStamp: Long): SamplingIt
     val zramMm = parseZramMmStatResult(sections[SECTION_ZRAM_MM].orEmpty())
     val zramBd = parseZramBdStatResult(sections[SECTION_ZRAM_BD].orEmpty())
     val zswap = sections[SECTION_ZSWAP].orEmpty()
+    val flash = sections["FLASH_IO"].orEmpty().trim().split(Regex("\\s+"))
 
     return SamplingItem(
         sampleStamp = sampleStamp,
@@ -140,6 +144,9 @@ internal fun parseSamplingItem(rawOutput: String, sampleStamp: Long): SamplingIt
         zswapPoolTotalSize = labeledLong(zswap, "pool_total_size") / 1024L,
         zswapPoolLimitHit = labeledLong(zswap, "pool_limit_hit"),
         zswapWrittenBackPages = labeledLong(zswap, "written_back_pages"),
+        // stat 第 3、7 项是 512 字节扇区数；除以 2 得到 KB。
+        flashDeviceReadKb = flash.getOrNull(2)?.toLongOrNull()?.div(2.0),
+        flashDeviceWriteKb = flash.getOrNull(6)?.toLongOrNull()?.div(2.0),
         pageSizeKb = sections[SECTION_PAGE_SIZE]?.trim()?.toLongOrNull()
             ?.takeIf { it >= 1024L && it % 1024L == 0L }?.div(1024L) ?: 4L,
     )

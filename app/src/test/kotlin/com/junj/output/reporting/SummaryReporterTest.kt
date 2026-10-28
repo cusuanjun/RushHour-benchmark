@@ -225,6 +225,20 @@ class SummaryReporterTest {
         }
     }
 
+    @Test
+    fun `device KB totals use sampled volumes despite residual zram data`() {
+        val first = sampling(zramOrigKb = 4).copy(flashDeviceReadKb = 100.0, flashDeviceWriteKb = 200.0)
+        val next = first.copy(sampleStamp = 2000, flashDeviceReadKb = 107.5, flashDeviceWriteKb = 211.0)
+        val summary = calculateSummary(
+            launches = emptyList(), samples = listOf(first, next), survivals = emptyList(),
+            appCount = 1, testRoundCount = 1, compressionEngine = CompressionEngine.NONE,
+            runtimeMs = 2000, lmkdCount = 0, swapInLatStats = "",
+        )
+        assertEquals(7.5, summary.swap.flashDeviceReadKb)
+        assertEquals(11.0, summary.swap.flashDeviceWriteKb)
+        assertTrue(renderSummary(summary).contains("swap.flashDeviceReadKb=7.5"))
+    }
+
     private fun sample(
         originalAlive: Int = 50,
         survivalTotal: Int = 70,

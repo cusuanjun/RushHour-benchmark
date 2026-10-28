@@ -34,6 +34,11 @@ enum class ArgType(val code: Int) {
 }
 
 class AppCommand : CliktCommand(name = "android-app-launch-test") {
+    val rounds: Int by option("--rounds", help = "Number of workload rounds; defaults to 10")
+        .int()
+        .default(com.junj.config.DEFAULT_TEST_ROUND_COUNT)
+        .validate { require(it > 0) { "rounds must be greater than 0" } }
+
     val type: Int by option(
         "-t",
         "--type",
@@ -166,6 +171,7 @@ fun parseArgs(args: Array<String>): ExperimentConfig {
         timestamp = timestamp,
         outputDirectory = File("../logs/$timestamp"),
         flashSwapDeviceSizeMB = flashSwapDeviceSizeMB,
+        testRoundCount = command.rounds,
         zramWritebackIntervalSec = zramWritebackIntervalSec,
         zswapMaxPoolPercent = zswapMaxPoolPercent,
     )

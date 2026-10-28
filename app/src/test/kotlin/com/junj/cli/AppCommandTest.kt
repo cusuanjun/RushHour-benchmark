@@ -12,6 +12,12 @@ import kotlin.test.assertTrue
 //   0 = noSwap, 1 = onlyZram, 2 = zramWriteback, 3 = flashSwap, 4 = zswap
 class AppCommandTest {
     @Test
+    fun `short run accepts one round while ordinary runs keep ten`() {
+        assertEquals(10, parseArgs(arrayOf("-t", "3", "-a", "2")).testRoundCount)
+        assertEquals(1, parseArgs(arrayOf("-t", "3", "-a", "2", "--rounds", "1")).testRoundCount)
+    }
+
+    @Test
     fun `flash size falls back to the default when -f is omitted`() {
         val config = parseArgs(arrayOf("-t", "3", "-a", "0"))
 

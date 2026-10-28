@@ -10,6 +10,14 @@ import kotlin.test.assertTrue
 
 class MetricsCollectorTest {
     @Test
+    fun `flash KB uses sector fields three and seven including half KB`() {
+        val item = parseSamplingItem("@@DSH@@ FLASH_IO\n101 2 301 4 202 6 701 8 0 10 11", 2000)
+        assertEquals(150.5, item.flashDeviceReadKb)
+        assertEquals(350.5, item.flashDeviceWriteKb)
+        assertEquals(null, parseSamplingItem("", 0).flashDeviceReadKb)
+    }
+
+    @Test
     fun `collector converts bd counters from 4 KiB units to KB`() {
         val issued = mutableListOf<String>()
         val adb = object : AdbExecutor {
